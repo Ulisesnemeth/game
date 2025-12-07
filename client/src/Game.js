@@ -362,9 +362,6 @@ export class Game {
             if (e.code === 'KeyF') {
                 this.tryInteract();
             }
-            if (e.code === 'KeyR' && this.building?.isPlacing) {
-                this.building.rotatePlacing();
-            }
             if (e.code === 'Escape' && this.building?.isPlacing) {
                 this.building.cancelPlacing();
             }

@@ -258,15 +258,22 @@ export class BuildingUI {
 
             // Building controls when placing
             if (this.game.building?.isPlacing) {
-                if (e.code === 'KeyR') {
-                    this.game.building.rotatePlacing();
-                }
                 if (e.code === 'Escape') {
                     this.game.building.cancelPlacing();
                     this.hideIndicator();
                 }
             }
         });
+
+        // Mouse wheel to rotate while placing
+        window.addEventListener('wheel', (e) => {
+            if (!this.game.building?.isPlacing) return;
+
+            e.preventDefault();
+            // Scroll up = clockwise (+1), scroll down = counter-clockwise (-1)
+            const direction = e.deltaY > 0 ? 1 : -1;
+            this.game.building.rotatePlacing(direction);
+        }, { passive: false });
 
         // Click to place
         window.addEventListener('click', (e) => {
@@ -342,7 +349,7 @@ export class BuildingUI {
             <span class="indicator-rotation">${degrees}°</span>
             <div class="indicator-controls">
                 <span><b>Click</b> Colocar</span>
-                <span><b>R</b> Rotar (+10°)</span>
+            <span><b>Scroll</b> Rotar (±10°)</span>
                 <span><b>Esc</b> Cancelar</span>
             </div>
         `;
