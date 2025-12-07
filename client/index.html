@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Depth Descent - Juego 3D cooperativo con niveles infinitos de profundidad">
+    <title>Depth Descent</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+
+        <!-- HUD -->
+        <div id="hud">
+            <!-- Player Stats -->
+            <div id="player-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Nivel</span>
+                    <span id="player-level" class="stat-value">1</span>
+                </div>
+                <div class="bar-container">
+                    <div id="health-bar" class="bar health">
+                        <div class="bar-fill"></div>
+                        <span class="bar-text">100/100</span>
+                    </div>
+                </div>
+                <div class="bar-container">
+                    <div id="xp-bar" class="bar xp">
+                        <div class="bar-fill"></div>
+                        <span class="bar-text">0/100 XP</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Depth Indicator -->
+            <div id="depth-indicator">
+                <div class="depth-icon">⬇</div>
+                <div class="depth-info">
+                    <span class="depth-label">PROFUNDIDAD</span>
+                    <span id="current-depth" class="depth-value">0</span>
+                </div>
+            </div>
+
+            <!-- Players List -->
+            <div id="players-list">
+                <div class="panel-header">Jugadores</div>
+                <ul id="connected-players"></ul>
+            </div>
+
+            <!-- Player Direction Indicators -->
+            <div id="player-indicators"></div>
+
+            <!-- Controls Help -->
+            <div id="controls-help">
+                <span>WASD: Mover</span>
+                <span>CLICK: Atacar</span>
+                <span>E: Descender/Subir</span>
+            </div>
+        </div>
+
+        <!-- Connection Status -->
+        <div id="connection-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Conectando...</span>
+        </div>
+
+        <!-- Damage Numbers Container -->
+        <div id="damage-numbers"></div>
+
+        <!-- Level Up Animation -->
+        <div id="level-up-popup" class="hidden">
+            <span class="level-up-text">¡NIVEL ARRIBA!</span>
+            <span class="new-level"></span>
+        </div>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+
+</html>

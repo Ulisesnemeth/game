@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth Descent - Editor de Personaje</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-glass: rgba(15, 15, 25, 0.9);
+            --border-glow: rgba(100, 200, 255, 0.3);
+            --accent-primary: #00d4ff;
+            --accent-secondary: #ff6b35;
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-image:
+                radial-gradient(circle at 20% 80%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 107, 53, 0.1) 0%, transparent 50%);
+        }
+
+        .editor-container {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glow);
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 500px;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 0 40px rgba(0, 212, 255, 0.2);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-family: inherit;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
+        }
+
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+        }
+
+        .color-option {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 10px;
+            border: 3px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .color-option:hover {
+            transform: scale(1.1);
+        }
+
+        .color-option.selected {
+            border-color: white;
+            box-shadow: 0 0 15px currentColor;
+        }
+
+        .preview {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .preview-character {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            box-shadow: 0 0 30px currentColor;
+            transition: all 0.3s ease;
+        }
+
+        .preview-name {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .btn-play {
+            width: 100%;
+            padding: 18px;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--accent-primary), #0099cc);
+            color: white;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .btn-play:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.5);
+        }
+
+        .btn-logout {
+            display: block;
+            width: 100%;
+            text-align: center;
+            margin-top: 15px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .btn-logout:hover {
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="editor-container">
+        <div class="header">
+            <h1>⚔️ Editor de Personaje</h1>
+            <p>Personaliza tu apariencia antes de jugar</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="stat-level">1</div>
+                <div class="stat-label">Nivel</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-xp">0</div>
+                <div class="stat-label">XP Total</div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="display-name">Nombre Visible</label>
+            <input type="text" id="display-name" maxlength="20" placeholder="Tu nombre en el juego">
+        </div>
+
+        <div class="form-group">
+            <label>Color del Personaje</label>
+            <div class="color-grid" id="color-grid"></div>
+        </div>
+
+        <div class="preview">
+            <div class="preview-character" id="preview-char"></div>
+            <div class="preview-name" id="preview-name">Jugador</div>
+        </div>
+
+        <button class="btn-play" id="btn-play">▶ JUGAR</button>
+        <a href="login.html" class="btn-logout">Cerrar sesión</a>
+    </div>
+
+    <script>
+        const API_URL = window.location.hostname === 'localhost'
+            ? 'http://localhost:3000'
+            : `http://${window.location.hostname}:3000`;
+
+        // Player colors from server
+        const PLAYER_COLORS = [
+            0x00d4ff, 0xff6b35, 0x7bed9f, 0xff4757,
+            0xffd43b, 0xcc5de8, 0x20c997, 0xff8787,
+            0x748ffc, 0xffc078, 0x63e6be, 0xe599f7
+        ];
+
+        // Get user from session
+        let userData = JSON.parse(sessionStorage.getItem('user'));
+        if (!userData) {
+            window.location.href = 'login.html';
+        }
+
+        let selectedColor = userData.color || PLAYER_COLORS[0];
+        let displayName = userData.displayName || userData.username;
+
+        // DOM elements
+        const colorGrid = document.getElementById('color-grid');
+        const displayNameInput = document.getElementById('display-name');
+        const previewChar = document.getElementById('preview-char');
+        const previewName = document.getElementById('preview-name');
+        const btnPlay = document.getElementById('btn-play');
+        const statLevel = document.getElementById('stat-level');
+        const statXp = document.getElementById('stat-xp');
+
+        // Populate stats
+        statLevel.textContent = userData.level || 1;
+        statXp.textContent = userData.xp || 0;
+
+        // Create color options
+        PLAYER_COLORS.forEach(color => {
+            const hex = '#' + color.toString(16).padStart(6, '0');
+            const div = document.createElement('div');
+            div.className = 'color-option' + (color === selectedColor ? ' selected' : '');
+            div.style.backgroundColor = hex;
+            div.dataset.color = color;
+            div.onclick = () => selectColor(color, div);
+            colorGrid.appendChild(div);
+        });
+
+        function selectColor(color, element) {
+            selectedColor = color;
+            document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            updatePreview();
+        }
+
+        function updatePreview() {
+            const hex = '#' + selectedColor.toString(16).padStart(6, '0');
+            previewChar.style.backgroundColor = hex;
+            previewName.textContent = displayNameInput.value || displayName;
+        }
+
+        // Initial preview
+        displayNameInput.value = displayName;
+        updatePreview();
+
+        displayNameInput.addEventListener('input', updatePreview);
+
+        // Save and play
+        btnPlay.addEventListener('click', async () => {
+            const newName = displayNameInput.value.trim() || userData.username;
+
+            // Save to server
+            try {
+                const res = await fetch(`${API_URL}/updateProfile`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: userData.username,
+                        displayName: newName,
+                        color: selectedColor
+                    })
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                    userData = result.user;
+                    sessionStorage.setItem('user', JSON.stringify(userData));
+                }
+            } catch (error) {
+                console.error('Error saving profile:', error);
+            }
+
+            // Go to game
+            window.location.href = 'index.html';
+        });
+    </script>
+</body>
+
+</html>
