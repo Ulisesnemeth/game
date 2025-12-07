@@ -1,4 +1,5 @@
-import { getItemType } from './systems/ItemTypes.js';
+import { getItemType, createItem } from './systems/ItemTypes.js';
+import * as THREE from 'three';
 
 export class Combat {
     constructor(game) {
@@ -17,9 +18,29 @@ export class Combat {
         this.game.player.attack();
         this.game.player.isAttacking = true;
 
+        // Trigger attack animation on model
+        this.game.player.model?.update(0, false, true);
+
         const attackPos = this.game.player.getAttackPosition();
         const attackRadius = this.game.player.getAttackRadius();
         const { damage, isCrit } = this.game.player.getDamage();
+
+        // Check for resources first (trees, rocks)
+        const nearestResource = this.game.world.getNearestResource(attackPos, attackRadius);
+        if (nearestResource) {
+            // Send hit to server
+            this.game.network.sendResourceHit(nearestResource.id, damage);
+
+            // Show damage number at resource position
+            const pos = new THREE.Vector3(nearestResource.data.x, 1, nearestResource.data.z);
+            this.showDamageNumber(pos, damage, isCrit);
+
+            // Spawn wood/rock hit particles
+            const hitColor = nearestResource.data.type === 'tree' ? 0x5c3317 : 0x888888;
+            this.game.particles?.spawnBloodSplatter(pos, hitColor, 0.5);
+
+            return;
+        }
 
         // Find mobs in range
         const mobsHit = this.game.mobManager.getMobsInRange(attackPos, attackRadius);
@@ -30,6 +51,31 @@ export class Combat {
 
             // Show damage number
             this.showDamageNumber(mob.mesh.position, damage, isCrit);
+
+            // Blood splatter effect
+            const bloodColor = mob.data.type?.name === 'Slime' ? 0x7bed9f : 0xff4444;
+            this.game.particles?.spawnBloodSplatter(mob.mesh.position.clone(), bloodColor, isCrit ? 1.5 : 1);
+
+            // Apply knockback visually (will be synced from server)
+            this.applyKnockback(mob, this.game.player.mesh.position);
+        }
+    }
+
+    applyKnockback(mob, attackerPos) {
+        // Calculate knockback direction (away from attacker)
+        const mobPos = mob.model.group.position;
+        const dx = mobPos.x - attackerPos.x;
+        const dz = mobPos.z - attackerPos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist > 0.1) {
+            const knockbackForce = 1.5;
+            const normX = dx / dist;
+            const normZ = dz / dist;
+
+            // Apply immediate visual knockback
+            mob.targetX += normX * knockbackForce;
+            mob.targetZ += normZ * knockbackForce;
         }
     }
 
@@ -51,8 +97,11 @@ export class Combat {
             element.style.color = '#ff4757';
         }
 
+        // Add random offset for variety
+        const offsetX = (Math.random() - 0.5) * 40;
+
         const screenPos = this.worldToScreen(position);
-        element.style.left = `${screenPos.x}px`;
+        element.style.left = `${screenPos.x + offsetX}px`;
         element.style.top = `${screenPos.y}px`;
 
         container.appendChild(element);
@@ -86,6 +135,8 @@ export class Combat {
         element.className = 'damage-number item-drop';
         element.innerHTML = `${type.icon} +${drop.quantity}`;
         element.style.color = '#ffd43b';
+        element.style.fontWeight = 'bold';
+        element.style.textShadow = '0 0 10px rgba(255, 212, 59, 0.8)';
 
         const screenPos = this.worldToScreen(position);
         element.style.left = `${screenPos.x - 30}px`;

@@ -37,21 +37,45 @@ export class ServerMobManager {
         };
     }
 
-    spawnMob(depth) {
+    spawnMob(depth, playerPositions = []) {
         const type = this.getMobTypeForDepth(depth);
         const stats = this.getStatsForDepth(depth);
 
-        // Random position
-        const angle = Math.random() * Math.PI * 2;
-        const distance = 15 + Math.random() * 20;
+        // Spawn outside camera view (minimum distance 20 units from any player)
+        let x, z;
+        const minDistance = 20; // Outside typical camera view
+        const maxDistance = 35;
+
+        // Try to find a spot away from all players
+        let attempts = 0;
+        do {
+            const angle = Math.random() * Math.PI * 2;
+            const distance = minDistance + Math.random() * (maxDistance - minDistance);
+            x = Math.cos(angle) * distance;
+            z = Math.sin(angle) * distance;
+            attempts++;
+
+            // Check distance from all players
+            let tooClose = false;
+            for (const p of playerPositions) {
+                const dx = x - p.x;
+                const dz = z - p.z;
+                if (Math.sqrt(dx * dx + dz * dz) < minDistance) {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose || attempts > 10) break;
+        } while (true);
 
         const mob = {
             id: this.nextMobId++,
             depth: depth,
             type: type,
-            x: Math.cos(angle) * distance,
-            z: Math.sin(angle) * distance,
-            rotation: 0,
+            x: x,
+            z: z,
+            rotation: Math.random() * Math.PI * 2,
             hp: stats.maxHp,
             maxHp: stats.maxHp,
             damage: stats.damage,

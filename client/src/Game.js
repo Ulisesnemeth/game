@@ -9,6 +9,7 @@ import { Inventory } from './systems/Inventory.js';
 import { Survival } from './systems/Survival.js';
 import { Crafting } from './systems/Crafting.js';
 import { Building } from './systems/Building.js';
+import { ParticleSystem } from './systems/ParticleSystem.js';
 import { InventoryUI } from './ui/InventoryUI.js';
 import { SurvivalUI } from './ui/SurvivalUI.js';
 import { CraftingUI } from './ui/CraftingUI.js';
@@ -49,6 +50,7 @@ export class Game {
         this.survival = new Survival(this);
         this.crafting = new Crafting(this);
         this.building = new Building(this);
+        this.particles = new ParticleSystem(this.scene);
 
         // New UIs
         this.inventoryUI = new InventoryUI(this);
@@ -437,6 +439,7 @@ export class Game {
         this.mobManager.updateVisuals(delta);
         this.combat.update(delta);
         this.world.update(delta);
+        this.particles?.update(delta);
 
         // Survival
         const isMoving = this.player.isMoving;

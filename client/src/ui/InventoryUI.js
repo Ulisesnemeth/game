@@ -8,7 +8,6 @@ export class InventoryUI {
         this.game = game;
         this.isOpen = false;
         this.draggedItem = null;
-        this.dragOffset = { x: 0, y: 0 };
 
         this.cellSize = 50;
 
@@ -17,7 +16,6 @@ export class InventoryUI {
     }
 
     createUI() {
-        // Container
         this.container = document.createElement('div');
         this.container.id = 'inventory-ui';
         this.container.className = 'game-panel hidden';
@@ -26,7 +24,10 @@ export class InventoryUI {
                 <span>🎒 Inventario</span>
                 <button class="close-btn">×</button>
             </div>
-            <div class="inventory-grid" id="inventory-grid"></div>
+            <div class="inventory-grid-wrapper">
+                <div class="inventory-grid" id="inventory-grid"></div>
+                <div class="inventory-items" id="inventory-items"></div>
+            </div>
             <div class="equipped-slots">
                 <div class="equipped-slot" data-slot="weapon">
                     <span class="slot-label">Arma</span>
@@ -40,12 +41,6 @@ export class InventoryUI {
         `;
         document.body.appendChild(this.container);
 
-        // Drag ghost
-        this.dragGhost = document.createElement('div');
-        this.dragGhost.className = 'drag-ghost hidden';
-        document.body.appendChild(this.dragGhost);
-
-        // Add styles
         this.addStyles();
     }
 
@@ -77,6 +72,7 @@ export class InventoryUI {
                 align-items: center;
                 margin-bottom: 12px;
                 font-weight: 600;
+                font-size: 16px;
             }
             
             .game-panel .close-btn {
@@ -86,6 +82,7 @@ export class InventoryUI {
                 font-size: 24px;
                 cursor: pointer;
                 opacity: 0.7;
+                line-height: 1;
             }
             
             .game-panel .close-btn:hover {
@@ -96,15 +93,25 @@ export class InventoryUI {
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                min-width: 250px;
+            }
+            
+            .inventory-grid-wrapper {
+                position: relative;
+                padding: 4px;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 8px;
             }
             
             .inventory-grid {
                 display: grid;
                 gap: 2px;
-                background: rgba(0, 0, 0, 0.3);
-                padding: 4px;
-                border-radius: 8px;
+            }
+            
+            .inventory-items {
+                position: absolute;
+                top: 4px;
+                left: 4px;
+                pointer-events: none;
             }
             
             .inventory-cell {
@@ -113,7 +120,6 @@ export class InventoryUI {
                 background: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 4px;
-                position: relative;
             }
             
             .inventory-item {
@@ -123,26 +129,30 @@ export class InventoryUI {
                 align-items: center;
                 justify-content: center;
                 background: rgba(0, 212, 255, 0.2);
-                border: 1px solid rgba(0, 212, 255, 0.5);
-                border-radius: 4px;
+                border: 2px solid rgba(0, 212, 255, 0.5);
+                border-radius: 6px;
                 cursor: grab;
-                z-index: 10;
+                pointer-events: auto;
+                box-sizing: border-box;
             }
             
             .inventory-item:hover {
-                background: rgba(0, 212, 255, 0.3);
+                background: rgba(0, 212, 255, 0.35);
+                border-color: rgba(0, 212, 255, 0.8);
             }
             
             .inventory-item .item-icon {
                 font-size: 24px;
+                line-height: 1;
             }
             
             .inventory-item .item-quantity {
                 position: absolute;
                 bottom: 2px;
                 right: 4px;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: bold;
+                text-shadow: 0 0 3px black, 0 0 3px black;
             }
             
             .equipped-slots {
@@ -168,7 +178,7 @@ export class InventoryUI {
                 width: 50px;
                 height: 50px;
                 background: rgba(255, 107, 53, 0.2);
-                border: 1px solid rgba(255, 107, 53, 0.5);
+                border: 2px solid rgba(255, 107, 53, 0.5);
                 border-radius: 6px;
                 display: flex;
                 align-items: center;
@@ -176,21 +186,9 @@ export class InventoryUI {
                 font-size: 24px;
             }
             
-            .drag-ghost {
-                position: fixed;
-                pointer-events: none;
-                z-index: 2000;
-                opacity: 0.8;
-                font-size: 32px;
-            }
-            
-            .drag-ghost.hidden {
-                display: none;
-            }
-            
             .item-tooltip {
                 position: fixed;
-                background: rgba(0, 0, 0, 0.9);
+                background: rgba(0, 0, 0, 0.95);
                 border: 1px solid rgba(100, 200, 255, 0.5);
                 border-radius: 6px;
                 padding: 8px 12px;
@@ -204,21 +202,19 @@ export class InventoryUI {
             .item-tooltip .tooltip-name {
                 font-weight: 600;
                 color: #00d4ff;
+                margin-bottom: 4px;
             }
             
             .item-tooltip .tooltip-desc {
                 opacity: 0.7;
-                margin-top: 4px;
             }
         `;
         document.head.appendChild(style);
     }
 
     setupEvents() {
-        // Close button
         this.container.querySelector('.close-btn').addEventListener('click', () => this.close());
 
-        // Keyboard toggle
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyI') {
                 this.toggle();
@@ -227,6 +223,13 @@ export class InventoryUI {
                 this.close();
             }
         });
+
+        // Listen for inventory changes
+        if (this.game.player?.inventory) {
+            this.game.player.inventory.onChange(() => {
+                if (this.isOpen) this.render();
+            });
+        }
     }
 
     toggle() {
@@ -246,17 +249,22 @@ export class InventoryUI {
     close() {
         this.isOpen = false;
         this.container.classList.add('hidden');
+        this.hideTooltip();
     }
 
     render() {
-        const inventory = this.game.player.inventory;
+        const inventory = this.game.player?.inventory;
         if (!inventory) return;
 
         const grid = this.container.querySelector('#inventory-grid');
-        grid.innerHTML = '';
-        grid.style.gridTemplateColumns = `repeat(${inventory.width}, ${this.cellSize}px)`;
+        const itemsContainer = this.container.querySelector('#inventory-items');
 
-        // Create cells
+        // Set grid dimensions
+        grid.style.gridTemplateColumns = `repeat(${inventory.width}, ${this.cellSize}px)`;
+        grid.innerHTML = '';
+        itemsContainer.innerHTML = '';
+
+        // Create empty cells
         for (let y = 0; y < inventory.height; y++) {
             for (let x = 0; x < inventory.width; x++) {
                 const cell = document.createElement('div');
@@ -267,7 +275,7 @@ export class InventoryUI {
             }
         }
 
-        // Add items
+        // Render items on top
         inventory.items.forEach((slot, index) => {
             const type = getItemType(slot.item.typeId);
             if (!type) return;
@@ -275,27 +283,33 @@ export class InventoryUI {
             const itemEl = document.createElement('div');
             itemEl.className = 'inventory-item';
             itemEl.dataset.index = index;
-            itemEl.style.left = `${slot.x * (this.cellSize + 2) + 4}px`;
-            itemEl.style.top = `${slot.y * (this.cellSize + 2) + 4}px`;
-            itemEl.style.width = `${type.width * this.cellSize - 4}px`;
-            itemEl.style.height = `${type.height * this.cellSize - 4}px`;
 
+            // Calculate position and size
+            const gap = 2;
+            const x = slot.x * (this.cellSize + gap);
+            const y = slot.y * (this.cellSize + gap);
+            const width = type.width * this.cellSize + (type.width - 1) * gap;
+            const height = type.height * this.cellSize + (type.height - 1) * gap;
+
+            itemEl.style.left = `${x}px`;
+            itemEl.style.top = `${y}px`;
+            itemEl.style.width = `${width}px`;
+            itemEl.style.height = `${height}px`;
+
+            const quantity = slot.item.quantity || 1;
             itemEl.innerHTML = `
                 <span class="item-icon">${type.icon}</span>
-                ${slot.item.quantity > 1 ? `<span class="item-quantity">${slot.item.quantity}</span>` : ''}
+                ${quantity > 1 ? `<span class="item-quantity">${quantity}</span>` : ''}
             `;
 
-            // Drag events
-            itemEl.draggable = true;
-            itemEl.addEventListener('dragstart', (e) => this.onDragStart(e, index));
+            // Events
             itemEl.addEventListener('contextmenu', (e) => this.onRightClick(e, index));
-            itemEl.addEventListener('mouseenter', (e) => this.showTooltip(e, type));
+            itemEl.addEventListener('mouseenter', (e) => this.showTooltip(e, type, slot.item));
             itemEl.addEventListener('mouseleave', () => this.hideTooltip());
 
-            grid.appendChild(itemEl);
+            itemsContainer.appendChild(itemEl);
         });
 
-        // Update equipped slots
         this.updateEquippedSlots(inventory);
     }
 
@@ -303,34 +317,34 @@ export class InventoryUI {
         const weaponSlot = document.getElementById('equipped-weapon');
         const toolSlot = document.getElementById('equipped-tool');
 
-        if (inventory.equippedWeapon) {
-            const type = getItemType(inventory.equippedWeapon.typeId);
-            weaponSlot.textContent = type?.icon || '?';
-        } else {
-            weaponSlot.textContent = '';
+        if (weaponSlot) {
+            if (inventory.equippedWeapon) {
+                const type = getItemType(inventory.equippedWeapon.typeId);
+                weaponSlot.textContent = type?.icon || '?';
+            } else {
+                weaponSlot.textContent = '';
+            }
         }
 
-        if (inventory.equippedTool) {
-            const type = getItemType(inventory.equippedTool.typeId);
-            toolSlot.textContent = type?.icon || '?';
-        } else {
-            toolSlot.textContent = '';
+        if (toolSlot) {
+            if (inventory.equippedTool) {
+                const type = getItemType(inventory.equippedTool.typeId);
+                toolSlot.textContent = type?.icon || '?';
+            } else {
+                toolSlot.textContent = '';
+            }
         }
-    }
-
-    onDragStart(e, index) {
-        this.draggedItem = index;
-        e.dataTransfer.setData('text/plain', index);
     }
 
     onRightClick(e, index) {
         e.preventDefault();
-        const inventory = this.game.player.inventory;
+        const inventory = this.game.player?.inventory;
+        if (!inventory) return;
+
         const result = inventory.useItem(index);
 
         if (result) {
             if (result.action === 'eat') {
-                // Consume food
                 inventory.removeItem(index, 1);
                 this.game.survival?.eat(result.item);
             }
@@ -338,7 +352,7 @@ export class InventoryUI {
         }
     }
 
-    showTooltip(e, type) {
+    showTooltip(e, type, item) {
         let tooltip = document.querySelector('.item-tooltip');
         if (!tooltip) {
             tooltip = document.createElement('div');
@@ -346,9 +360,15 @@ export class InventoryUI {
             document.body.appendChild(tooltip);
         }
 
+        let durabilityText = '';
+        if (item.durability !== null && item.durability !== undefined) {
+            durabilityText = `<div style="margin-top: 4px; color: #ffa502;">Durabilidad: ${item.durability}</div>`;
+        }
+
         tooltip.innerHTML = `
-            <div class="tooltip-name">${type.name}</div>
+            <div class="tooltip-name">${type.icon} ${type.name}</div>
             <div class="tooltip-desc">${type.description}</div>
+            ${durabilityText}
         `;
         tooltip.style.left = `${e.clientX + 15}px`;
         tooltip.style.top = `${e.clientY + 15}px`;

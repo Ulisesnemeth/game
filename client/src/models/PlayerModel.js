@@ -2,8 +2,7 @@ import * as THREE from 'three';
 
 /**
  * Articulated player model with procedural geometry
- * Parts: Head, Torso, Arms (L/R), Legs (L/R)
- * Animations: idle, walk, attack, hit, death
+ * Animations based on actual movement direction
  */
 export class PlayerModel {
     constructor(color = 0x00d4ff) {
@@ -11,25 +10,24 @@ export class PlayerModel {
         this.group = new THREE.Group();
 
         // Animation state
-        this.currentAnimation = 'idle';
         this.animationTime = 0;
         this.walkCycle = 0;
-        this.attackProgress = 0;
         this.isAttacking = false;
+        this.attackProgress = 0;
         this.hitFlash = 0;
 
-        // Create body parts
-        this.createBody();
+        // Movement tracking
+        this.lastPosition = new THREE.Vector3();
+        this.velocity = new THREE.Vector3();
+        this.isMoving = false;
 
-        // Set initial position
-        this.group.position.y = 0;
+        this.createBody();
     }
 
     createBody() {
         const mainColor = this.color;
         const skinColor = 0xffdbac;
 
-        // Materials
         this.bodyMaterial = new THREE.MeshStandardMaterial({
             color: mainColor,
             metalness: 0.3,
@@ -96,8 +94,12 @@ export class PlayerModel {
         this.group.add(this.leftLegPivot);
 
         const legGeo = new THREE.CapsuleGeometry(0.1, 0.35, 4, 8);
-        this.leftLeg = new THREE.Mesh(legGeo, this.bodyMaterial.clone());
-        this.leftLeg.material.color.setHex(0x333344);
+        const legMaterial = new THREE.MeshStandardMaterial({
+            color: 0x333344,
+            metalness: 0.2,
+            roughness: 0.8
+        });
+        this.leftLeg = new THREE.Mesh(legGeo, legMaterial);
         this.leftLeg.position.y = -0.25;
         this.leftLeg.castShadow = true;
         this.leftLegPivot.add(this.leftLeg);
@@ -107,7 +109,7 @@ export class PlayerModel {
         this.rightLegPivot.position.set(0.12, 0.45, 0);
         this.group.add(this.rightLegPivot);
 
-        this.rightLeg = new THREE.Mesh(legGeo.clone(), this.leftLeg.material.clone());
+        this.rightLeg = new THREE.Mesh(legGeo.clone(), legMaterial.clone());
         this.rightLeg.position.y = -0.25;
         this.rightLeg.castShadow = true;
         this.rightLegPivot.add(this.rightLeg);
@@ -121,6 +123,7 @@ export class PlayerModel {
 
     update(delta, isMoving = false, isAttacking = false) {
         this.animationTime += delta;
+        this.isMoving = isMoving;
 
         // Handle attack animation
         if (isAttacking && !this.isAttacking) {
@@ -129,7 +132,7 @@ export class PlayerModel {
         }
 
         if (this.isAttacking) {
-            this.attackProgress += delta * 4;
+            this.attackProgress += delta * 5;
             if (this.attackProgress >= 1) {
                 this.isAttacking = false;
                 this.attackProgress = 0;
@@ -155,10 +158,11 @@ export class PlayerModel {
         this.torso.scale.y = 1 + breathe;
         this.head.position.y = 1.1 + breathe * 2;
 
-        // Arms hang naturally
-        this.leftArmPivot.rotation.x = 0;
+        // Arms hang naturally with slight swing
+        const sway = Math.sin(this.animationTime * 1.5) * 0.05;
+        this.leftArmPivot.rotation.x = sway;
         this.leftArmPivot.rotation.z = 0.1;
-        this.rightArmPivot.rotation.x = 0;
+        this.rightArmPivot.rotation.x = -sway;
         this.rightArmPivot.rotation.z = -0.1;
 
         // Legs straight
@@ -167,51 +171,58 @@ export class PlayerModel {
     }
 
     animateWalk(delta) {
-        this.walkCycle += delta * 8;
+        // Speed based on actual movement
+        this.walkCycle += delta * 10;
 
         // Leg swing
-        const legSwing = Math.sin(this.walkCycle) * 0.6;
+        const legSwing = Math.sin(this.walkCycle) * 0.7;
         this.leftLegPivot.rotation.x = legSwing;
         this.rightLegPivot.rotation.x = -legSwing;
 
         // Arm swing (opposite to legs)
-        const armSwing = Math.sin(this.walkCycle) * 0.4;
+        const armSwing = Math.sin(this.walkCycle) * 0.5;
         this.leftArmPivot.rotation.x = -armSwing;
+        this.leftArmPivot.rotation.z = 0.15;
         this.rightArmPivot.rotation.x = armSwing;
+        this.rightArmPivot.rotation.z = -0.15;
 
-        // Slight torso bob
-        const bob = Math.abs(Math.sin(this.walkCycle)) * 0.05;
+        // Body bob and lean
+        const bob = Math.abs(Math.sin(this.walkCycle)) * 0.08;
         this.torso.position.y = 0.7 + bob;
         this.head.position.y = 1.1 + bob;
 
-        // Slight torso rotation
-        const twist = Math.sin(this.walkCycle) * 0.05;
+        // Slight torso rotation for natural walk
+        const twist = Math.sin(this.walkCycle) * 0.08;
         this.torso.rotation.y = twist;
+        this.head.rotation.y = -twist * 0.5;
     }
 
     animateAttack() {
-        // Wind up and strike with right arm
         const progress = this.attackProgress;
 
-        if (progress < 0.3) {
-            // Wind up
-            const t = progress / 0.3;
-            this.rightArmPivot.rotation.x = -t * 1.5;
+        // Three phase attack: wind up, strike, recover
+        if (progress < 0.2) {
+            // Wind up - pull arm back
+            const t = progress / 0.2;
+            this.rightArmPivot.rotation.x = -t * 2.0;
             this.rightArmPivot.rotation.z = -t * 0.5;
-        } else if (progress < 0.6) {
-            // Strike
-            const t = (progress - 0.3) / 0.3;
-            this.rightArmPivot.rotation.x = -1.5 + t * 2.5;
+            this.torso.rotation.z = t * 0.15;
+        } else if (progress < 0.5) {
+            // Strike - thrust forward
+            const t = (progress - 0.2) / 0.3;
+            this.rightArmPivot.rotation.x = -2.0 + t * 3.5;
             this.rightArmPivot.rotation.z = -0.5 + t * 0.3;
+            this.torso.rotation.z = 0.15 - t * 0.3;
         } else {
             // Recovery
-            const t = (progress - 0.6) / 0.4;
-            this.rightArmPivot.rotation.x = 1 * (1 - t);
+            const t = (progress - 0.5) / 0.5;
+            this.rightArmPivot.rotation.x = 1.5 * (1 - t);
             this.rightArmPivot.rotation.z = -0.2 * (1 - t);
+            this.torso.rotation.z = -0.15 * (1 - t);
         }
 
-        // Slight body lean
-        this.torso.rotation.z = -Math.sin(progress * Math.PI) * 0.1;
+        // Left arm follows slightly
+        this.leftArmPivot.rotation.x = -Math.sin(progress * Math.PI) * 0.3;
     }
 
     playHit() {

@@ -6,6 +6,7 @@ import { GameState } from './GameState.js';
 import { UserManager, PLAYER_COLORS } from './UserManager.js';
 import { ServerMobManager } from './MobManager.js';
 import { BuildingManager } from './BuildingManager.js';
+import { ResourceManager } from './ResourceManager.js';
 
 const app = express();
 app.use(cors());
@@ -24,6 +25,7 @@ const gameState = new GameState();
 const userManager = new UserManager();
 const mobManager = new ServerMobManager();
 const buildingManager = new BuildingManager();
+const resourceManager = new ResourceManager();
 
 // Track authenticated sockets
 const authenticatedSockets = new Map();
@@ -132,14 +134,11 @@ io.on('connection', (socket) => {
             mobManager.spawnMobsForDepth(player.depth);
         }
 
-        // Send current players to new player
+        // Send current data to new player
         socket.emit('currentPlayers', gameState.getPlayersForDepth(player.depth));
-
-        // Send current mobs for this depth
         socket.emit('mobsSync', mobManager.getUpdatePacket(player.depth));
-
-        // Send buildings for this depth
         socket.emit('buildingsSync', buildingManager.getBuildingsForDepth(player.depth));
+        socket.emit('resourcesSync', resourceManager.getAllResourcesForDepth(player.depth));
 
         // Notify others
         socket.broadcast.emit('playerJoined', player);
@@ -178,13 +177,10 @@ io.on('connection', (socket) => {
                 mobManager.spawnMobsForDepth(data.depth);
             }
 
-            // Send mobs for new depth
+            // Send data for new depth
             socket.emit('mobsSync', mobManager.getUpdatePacket(data.depth));
-
-            // Send buildings for new depth
             socket.emit('buildingsSync', buildingManager.getBuildingsForDepth(data.depth));
-
-            // Send players at new depth
+            socket.emit('resourcesSync', resourceManager.getAllResourcesForDepth(data.depth));
             socket.emit('currentPlayers', gameState.getPlayersForDepth(data.depth));
 
             // Notify all about depth change
@@ -207,24 +203,20 @@ io.on('connection', (socket) => {
         if (!result) return;
 
         if (result.died) {
-            // Calculate drops
             const drops = getDropsForMob(result.mob.type.name);
 
-            // Notify all players at this depth
             const playersAtDepth = gameState.getPlayersForDepth(player.depth);
             for (const id of Object.keys(playersAtDepth)) {
                 io.to(id).emit('mobDied', {
                     mobId: data.mobId,
                     xp: result.xp,
                     killerId: socket.id,
-                    drops: id === socket.id ? drops : [] // Only killer gets drops
+                    drops: id === socket.id ? drops : []
                 });
             }
 
-            // Remove mob
             mobManager.removeMob(data.mobId);
 
-            // Spawn replacement after delay
             setTimeout(() => {
                 const newMob = mobManager.spawnMob(player.depth);
                 const playersAtDepth = gameState.getPlayersForDepth(player.depth);
@@ -233,11 +225,42 @@ io.on('connection', (socket) => {
                 }
             }, 3000);
         } else {
-            // Broadcast damage
             const playersAtDepth = gameState.getPlayersForDepth(player.depth);
             for (const id of Object.keys(playersAtDepth)) {
                 io.to(id).emit('mobDamaged', {
                     mobId: data.mobId,
+                    hp: result.hp,
+                    maxHp: result.maxHp,
+                    attackerId: socket.id
+                });
+            }
+        }
+    });
+
+    // Player hits a resource (tree/rock)
+    socket.on('resourceHit', (data) => {
+        const player = gameState.getPlayer(socket.id);
+        if (!player) return;
+
+        const result = resourceManager.hitResource(data.resourceId, data.damage, socket.id);
+        if (!result) return;
+
+        const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+
+        if (result.destroyed) {
+            // Notify all players at this depth
+            for (const id of Object.keys(playersAtDepth)) {
+                io.to(id).emit('resourceDestroyed', {
+                    resourceId: data.resourceId,
+                    harvesterId: socket.id,
+                    drops: id === socket.id ? result.drops : []
+                });
+            }
+        } else {
+            // Notify all players of damage
+            for (const id of Object.keys(playersAtDepth)) {
+                io.to(id).emit('resourceDamaged', {
+                    resourceId: data.resourceId,
                     hp: result.hp,
                     maxHp: result.maxHp,
                     attackerId: socket.id
@@ -294,7 +317,6 @@ io.on('connection', (socket) => {
             contents: data.contents || []
         }, player.depth);
 
-        // Notify all players at this depth
         const playersAtDepth = gameState.getPlayersForDepth(player.depth);
         for (const id of Object.keys(playersAtDepth)) {
             io.to(id).emit('buildingPlaced', building);
@@ -317,7 +339,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Building contents updated (chest)
+    // Building contents updated
     socket.on('buildingContentsUpdate', (data) => {
         const player = gameState.getPlayer(socket.id);
         if (!player) return;
@@ -327,7 +349,6 @@ io.on('connection', (socket) => {
 
         buildingManager.updateBuildingContents(data.buildingId, data.contents);
 
-        // Notify all players at this depth
         const playersAtDepth = gameState.getPlayersForDepth(player.depth);
         for (const id of Object.keys(playersAtDepth)) {
             if (id !== socket.id) {
@@ -362,6 +383,7 @@ const TICK_RATE = 20;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
 let lastTick = Date.now();
+let resourceUpdateCounter = 0;
 
 setInterval(() => {
     const now = Date.now();
@@ -404,6 +426,25 @@ setInterval(() => {
 
         for (const id of Object.keys(playersAtDepth)) {
             io.to(id).emit('mobsUpdate', packet);
+        }
+    }
+
+    // Check resource respawns every second
+    resourceUpdateCounter++;
+    if (resourceUpdateCounter >= TICK_RATE) {
+        resourceUpdateCounter = 0;
+
+        const resourcesChanged = resourceManager.update();
+        if (resourcesChanged) {
+            // Notify players about respawned resources
+            for (const depth of activeDepths) {
+                const resources = resourceManager.getAllResourcesForDepth(depth);
+                const playersAtDepth = gameState.getPlayersForDepth(depth);
+
+                for (const id of Object.keys(playersAtDepth)) {
+                    io.to(id).emit('resourcesSync', resources);
+                }
+            }
         }
     }
 

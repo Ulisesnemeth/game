@@ -130,6 +130,11 @@ export class MobManager {
         const mob = this.mobs.get(mobId);
         if (!mob) return;
 
+        // Spawn debris particles
+        const mobType = mob.data.type?.name || 'Slime';
+        const color = mob.data.type?.color || 0x7bed9f;
+        this.game.particles?.spawnMobDeath(mob.model.group.position, mobType, color);
+
         mob.model.die();
 
         // Remove after death animation

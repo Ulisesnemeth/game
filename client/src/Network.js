@@ -26,7 +26,6 @@ export class Network {
     }
 
     setupEventListeners() {
-        // Connection established
         this.socket.on('connect', () => {
             this.connected = true;
             this.playerId = this.socket.id;
@@ -41,20 +40,17 @@ export class Network {
             });
         });
 
-        // Connection lost
         this.socket.on('disconnect', () => {
             this.connected = false;
             this.updateConnectionStatus('disconnected');
             console.log('Desconectado del servidor');
         });
 
-        // Auth error
         this.socket.on('authError', (data) => {
             console.error('Error de autenticación:', data.error);
             window.location.href = 'login.html';
         });
 
-        // Receive current players
         this.socket.on('currentPlayers', (players) => {
             for (const [id, data] of Object.entries(players)) {
                 if (id !== this.playerId) {
@@ -63,7 +59,6 @@ export class Network {
             }
         });
 
-        // Player joined
         this.socket.on('playerJoined', (data) => {
             if (data.id !== this.playerId) {
                 this.game.addOtherPlayer(data.id, data);
@@ -71,19 +66,16 @@ export class Network {
             }
         });
 
-        // Player left
         this.socket.on('playerLeft', (data) => {
             this.game.removeOtherPlayer(data.id);
         });
 
-        // Player moved
         this.socket.on('playerMoved', (data) => {
             if (data.id !== this.playerId) {
                 this.game.updateOtherPlayerPosition(data.id, data.x, data.z, data.rotation);
             }
         });
 
-        // Player changed depth
         this.socket.on('playerChangedDepth', (data) => {
             if (data.id !== this.playerId) {
                 this.game.updatePlayerData(data.id, { depth: data.depth, level: data.level });
@@ -96,7 +88,6 @@ export class Network {
             }
         });
 
-        // Player leveled up
         this.socket.on('playerLeveledUp', (data) => {
             if (data.id !== this.playerId) {
                 this.game.updatePlayerData(data.id, { level: data.level });
@@ -130,7 +121,6 @@ export class Network {
         this.socket.on('mobDied', (data) => {
             this.game.mobManager.killMob(data.mobId);
 
-            // Give XP and drops only to killer
             if (data.killerId === this.playerId) {
                 this.game.player.addXp(data.xp);
                 this.game.ui.updateXp(
@@ -168,6 +158,38 @@ export class Network {
                 hp: this.game.player.hp,
                 maxHp: this.game.player.maxHp
             });
+        });
+
+        // ===== RESOURCE EVENTS =====
+
+        this.socket.on('resourcesSync', (resources) => {
+            this.game.world.syncResources(resources);
+        });
+
+        this.socket.on('resourceDamaged', (data) => {
+            this.game.world.damageResource(data.resourceId);
+        });
+
+        this.socket.on('resourceDestroyed', (data) => {
+            // Get resource data before destroying for particle effect
+            const resource = this.game.world.resources.get(data.resourceId);
+            if (resource) {
+                const pos = resource.group.position.clone();
+                this.game.particles?.spawnResourceBreak(pos, resource.data.type);
+            }
+
+            this.game.world.destroyResource(data.resourceId);
+
+            // Only harvester gets drops
+            if (data.harvesterId === this.playerId && data.drops) {
+                for (const drop of data.drops) {
+                    const item = createItem(drop.typeId, drop.quantity);
+                    if (item) {
+                        this.game.player.inventory.addItem(item);
+                        this.game.combat.showItemDrop(this.game.player.mesh.position, drop);
+                    }
+                }
+            }
         });
 
         // ===== BUILDING EVENTS =====
@@ -214,6 +236,11 @@ export class Network {
     sendMobHit(mobId, damage) {
         if (!this.connected) return;
         this.socket.emit('mobHit', { mobId, damage });
+    }
+
+    sendResourceHit(resourceId, damage) {
+        if (!this.connected) return;
+        this.socket.emit('resourceHit', { resourceId, damage });
     }
 
     sendLevelUpdate() {
