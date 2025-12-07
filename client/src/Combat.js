@@ -1,3 +1,5 @@
+import { getItemType } from './systems/ItemTypes.js';
+
 export class Combat {
     constructor(game) {
         this.game = game;
@@ -13,19 +15,20 @@ export class Combat {
         if (!this.game.player.canAttack()) return;
 
         this.game.player.attack();
+        this.game.player.isAttacking = true;
 
         const attackPos = this.game.player.getAttackPosition();
         const attackRadius = this.game.player.getAttackRadius();
         const { damage, isCrit } = this.game.player.getDamage();
 
-        // Find mobs in range (now using server-synced mobs)
+        // Find mobs in range
         const mobsHit = this.game.mobManager.getMobsInRange(attackPos, attackRadius);
 
         for (const mob of mobsHit) {
             // Send hit to server
             this.game.network.sendMobHit(mob.id, damage);
 
-            // Show damage number (actual damage will come from server)
+            // Show damage number
             this.showDamageNumber(mob.mesh.position, damage, isCrit);
         }
     }
@@ -43,6 +46,10 @@ export class Combat {
         const element = document.createElement('div');
         element.className = 'damage-number' + (isCrit ? ' crit' : '');
         element.textContent = isCrit ? `${amount}!` : amount;
+
+        if (isPlayerDamage) {
+            element.style.color = '#ff4757';
+        }
 
         const screenPos = this.worldToScreen(position);
         element.style.left = `${screenPos.x}px`;
@@ -66,6 +73,26 @@ export class Combat {
 
         container.appendChild(element);
         setTimeout(() => element.remove(), 1000);
+    }
+
+    showItemDrop(position, drop) {
+        const container = document.getElementById('damage-numbers');
+        if (!container) return;
+
+        const type = getItemType(drop.typeId);
+        if (!type) return;
+
+        const element = document.createElement('div');
+        element.className = 'damage-number item-drop';
+        element.innerHTML = `${type.icon} +${drop.quantity}`;
+        element.style.color = '#ffd43b';
+
+        const screenPos = this.worldToScreen(position);
+        element.style.left = `${screenPos.x - 30}px`;
+        element.style.top = `${screenPos.y - 20}px`;
+
+        container.appendChild(element);
+        setTimeout(() => element.remove(), 1500);
     }
 
     worldToScreen(position) {

@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { createItem } from './systems/ItemTypes.js';
 
 export class Network {
     constructor(game) {
@@ -32,7 +33,6 @@ export class Network {
             this.updateConnectionStatus('connected');
             console.log('Conectado al servidor:', this.playerId);
 
-            // Send initial player data with username
             this.socket.emit('playerJoin', {
                 username: this.game.userData.username,
                 x: this.game.player.mesh.position.x,
@@ -54,7 +54,7 @@ export class Network {
             window.location.href = 'login.html';
         });
 
-        // Receive current players when joining
+        // Receive current players
         this.socket.on('currentPlayers', (players) => {
             for (const [id, data] of Object.entries(players)) {
                 if (id !== this.playerId) {
@@ -63,7 +63,7 @@ export class Network {
             }
         });
 
-        // New player joined
+        // Player joined
         this.socket.on('playerJoined', (data) => {
             if (data.id !== this.playerId) {
                 this.game.addOtherPlayer(data.id, data);
@@ -76,7 +76,7 @@ export class Network {
             this.game.removeOtherPlayer(data.id);
         });
 
-        // Player position update
+        // Player moved
         this.socket.on('playerMoved', (data) => {
             if (data.id !== this.playerId) {
                 this.game.updateOtherPlayerPosition(data.id, data.x, data.z, data.rotation);
@@ -106,12 +106,10 @@ export class Network {
 
         // ===== MOB EVENTS =====
 
-        // Full mob sync
         this.socket.on('mobsSync', (mobs) => {
             this.game.mobManager.syncMobs(mobs);
         });
 
-        // Mob position updates
         this.socket.on('mobsUpdate', (mobs) => {
             for (const mobData of mobs) {
                 const mob = this.game.mobManager.getMob(mobData.id);
@@ -125,16 +123,14 @@ export class Network {
             }
         });
 
-        // Mob damaged
         this.socket.on('mobDamaged', (data) => {
             this.game.mobManager.damageMob(data.mobId, data.hp, data.maxHp);
         });
 
-        // Mob died
         this.socket.on('mobDied', (data) => {
             this.game.mobManager.killMob(data.mobId);
 
-            // Give XP only to killer
+            // Give XP and drops only to killer
             if (data.killerId === this.playerId) {
                 this.game.player.addXp(data.xp);
                 this.game.ui.updateXp(
@@ -144,27 +140,55 @@ export class Network {
                 );
                 this.game.combat.showXpGain(this.game.player.mesh.position, data.xp);
 
-                // Notify server of level/xp change
+                // Add drops to inventory
+                if (data.drops && data.drops.length > 0) {
+                    for (const drop of data.drops) {
+                        const item = createItem(drop.typeId, drop.quantity);
+                        if (item) {
+                            this.game.player.inventory.addItem(item);
+                            this.game.combat.showItemDrop(this.game.player.mesh.position, drop);
+                        }
+                    }
+                }
+
                 this.sendLevelUpdate();
             }
         });
 
-        // Mob spawned
         this.socket.on('mobSpawned', (data) => {
             this.game.mobManager.spawnMob(data);
         });
 
-        // Mob attacked player
         this.socket.on('mobAttackedPlayer', (data) => {
             const newHp = this.game.player.takeDamage(data.damage);
             this.game.ui.updateHealth(newHp, this.game.player.maxHp);
             this.game.combat.showDamageNumber(this.game.player.mesh.position, data.damage, false, true);
 
-            // Notify server of HP change
             this.socket.emit('playerDamaged', {
                 hp: this.game.player.hp,
                 maxHp: this.game.player.maxHp
             });
+        });
+
+        // ===== BUILDING EVENTS =====
+
+        this.socket.on('buildingsSync', (buildings) => {
+            this.game.building?.syncBuildings(buildings);
+        });
+
+        this.socket.on('buildingPlaced', (building) => {
+            this.game.building?.addBuilding(building);
+        });
+
+        this.socket.on('buildingRemoved', (data) => {
+            this.game.building?.removeBuilding(data.buildingId);
+        });
+
+        this.socket.on('buildingContentsChanged', (data) => {
+            const building = this.game.building?.buildings.get(data.buildingId);
+            if (building) {
+                building.data.contents = data.contents;
+            }
         });
     }
 
@@ -199,6 +223,21 @@ export class Network {
             xp: this.game.player.xp,
             maxHp: this.game.player.maxHp
         });
+    }
+
+    sendBuildingPlaced(building) {
+        if (!this.connected) return;
+        this.socket.emit('buildingPlaced', building);
+    }
+
+    sendBuildingRemoved(buildingId) {
+        if (!this.connected) return;
+        this.socket.emit('buildingRemoved', { buildingId });
+    }
+
+    sendBuildingContentsUpdate(buildingId, contents) {
+        if (!this.connected) return;
+        this.socket.emit('buildingContentsUpdate', { buildingId, contents });
     }
 
     updateConnectionStatus(status) {

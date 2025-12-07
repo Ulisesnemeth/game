@@ -1,15 +1,19 @@
 import * as THREE from 'three';
+import { createMobModel } from './models/MobModels.js';
 
+/**
+ * MobManager - Client-side mob rendering with server sync
+ * Uses new procedural mob models with animations
+ */
 export class MobManager {
     constructor(scene, game) {
         this.scene = scene;
         this.game = game;
-        this.mobs = new Map(); // mobId → {mesh, data}
+        this.mobs = new Map(); // mobId → {model, data}
     }
 
     // Called when server sends full mob list
     syncMobs(mobsData) {
-        // Update or create mobs
         const receivedIds = new Set();
 
         for (const mobData of mobsData) {
@@ -37,52 +41,24 @@ export class MobManager {
     }
 
     createMob(data) {
-        const scale = 0.5 + (data.level || 1) * 0.05;
-        let geometry;
+        const typeName = data.type?.name || 'Slime';
+        const color = data.type?.color || 0x7bed9f;
+        const level = data.level || 1;
 
-        if (data.type.shape === 'sphere') {
-            geometry = new THREE.SphereGeometry(0.4 * scale, 8, 8);
-        } else if (data.type.shape === 'octahedron') {
-            geometry = new THREE.OctahedronGeometry(0.5 * scale, 0);
-        } else {
-            geometry = new THREE.BoxGeometry(0.6 * scale, 0.8 * scale, 0.6 * scale);
-        }
+        // Create model using new MobModels system
+        const model = createMobModel(typeName, color, level);
+        model.group.position.set(data.x, 0, data.z);
+        model.group.rotation.y = data.rotation || 0;
 
-        const color = data.type.color || 0x7bed9f;
-        const material = new THREE.MeshStandardMaterial({
-            color: color,
-            metalness: 0.3,
-            roughness: 0.6,
-            emissive: color,
-            emissiveIntensity: 0.1
-        });
+        this.scene.add(model.group);
 
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(data.x, 0.5, data.z);
-        mesh.rotation.y = data.rotation || 0;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        // Health bar
-        const bgGeometry = new THREE.PlaneGeometry(1, 0.1);
-        const bgMaterial = new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.DoubleSide });
-        const healthBarBg = new THREE.Mesh(bgGeometry, bgMaterial);
-        healthBarBg.position.y = 1.2;
-        mesh.add(healthBarBg);
-
-        const fillGeometry = new THREE.PlaneGeometry(1, 0.1);
-        const fillMaterial = new THREE.MeshBasicMaterial({ color: 0x7bed9f, side: THREE.DoubleSide });
-        const healthBarFill = new THREE.Mesh(fillGeometry, fillMaterial);
-        healthBarFill.position.y = 1.2;
-        healthBarFill.position.z = 0.01;
-        mesh.add(healthBarFill);
-
-        this.scene.add(mesh);
+        // Add health bar
+        const healthBar = this.createHealthBar();
+        model.group.add(healthBar.container);
 
         this.mobs.set(data.id, {
-            mesh,
-            healthBarFill,
-            healthBarBg,
+            model,
+            healthBar,
             data,
             targetX: data.x,
             targetZ: data.z,
@@ -92,20 +68,47 @@ export class MobManager {
         this.updateMobHealthBar(data.id);
     }
 
+    createHealthBar() {
+        const container = new THREE.Group();
+        container.position.y = 1.5;
+
+        const bgGeometry = new THREE.PlaneGeometry(1, 0.1);
+        const bgMaterial = new THREE.MeshBasicMaterial({
+            color: 0x333333,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.8
+        });
+        const bg = new THREE.Mesh(bgGeometry, bgMaterial);
+        container.add(bg);
+
+        const fillGeometry = new THREE.PlaneGeometry(1, 0.1);
+        const fillMaterial = new THREE.MeshBasicMaterial({
+            color: 0x7bed9f,
+            side: THREE.DoubleSide
+        });
+        const fill = new THREE.Mesh(fillGeometry, fillMaterial);
+        fill.position.z = 0.01;
+        container.add(fill);
+
+        return { container, bg, fill, fillMaterial };
+    }
+
     updateMobHealthBar(mobId) {
         const mob = this.mobs.get(mobId);
-        if (!mob) return;
+        if (!mob || !mob.healthBar) return;
 
         const healthPercent = mob.data.hp / mob.data.maxHp;
-        mob.healthBarFill.scale.x = Math.max(0.01, healthPercent);
-        mob.healthBarFill.position.x = -(1 - healthPercent) * 0.5;
+        mob.healthBar.fill.scale.x = Math.max(0.01, healthPercent);
+        mob.healthBar.fill.position.x = -(1 - healthPercent) * 0.5;
 
+        // Color based on health
         if (healthPercent > 0.5) {
-            mob.healthBarFill.material.color.setHex(0x7bed9f);
+            mob.healthBar.fillMaterial.color.setHex(0x7bed9f);
         } else if (healthPercent > 0.25) {
-            mob.healthBarFill.material.color.setHex(0xffa502);
+            mob.healthBar.fillMaterial.color.setHex(0xffa502);
         } else {
-            mob.healthBarFill.material.color.setHex(0xff4757);
+            mob.healthBar.fillMaterial.color.setHex(0xff4757);
         }
     }
 
@@ -118,17 +121,8 @@ export class MobManager {
         mob.data.maxHp = maxHp;
         this.updateMobHealthBar(mobId);
 
-        // Flash white
-        const originalColor = mob.mesh.material.color.getHex();
-        mob.mesh.material.color.setHex(0xffffff);
-        mob.mesh.material.emissiveIntensity = 1;
-
-        setTimeout(() => {
-            if (mob.mesh && mob.mesh.material) {
-                mob.mesh.material.color.setHex(originalColor);
-                mob.mesh.material.emissiveIntensity = 0.1;
-            }
-        }, 100);
+        // Play hit animation
+        mob.model.playHit();
     }
 
     // Called by server when a mob dies
@@ -136,22 +130,12 @@ export class MobManager {
         const mob = this.mobs.get(mobId);
         if (!mob) return;
 
-        // Death animation
-        const startTime = Date.now();
-        const mesh = mob.mesh;
+        mob.model.die();
 
-        const animateDeath = () => {
-            const elapsed = (Date.now() - startTime) / 300;
-            if (elapsed < 1 && mesh) {
-                mesh.scale.setScalar(1 - elapsed);
-                mesh.position.y += 0.02;
-                mesh.rotation.y += 0.1;
-                requestAnimationFrame(animateDeath);
-            } else {
-                this.removeMob(mobId);
-            }
-        };
-        animateDeath();
+        // Remove after death animation
+        setTimeout(() => {
+            this.removeMob(mobId);
+        }, 600);
     }
 
     // Called when server spawns a new mob
@@ -163,38 +147,39 @@ export class MobManager {
         const mob = this.mobs.get(mobId);
         if (!mob) return;
 
-        this.scene.remove(mob.mesh);
-        mob.mesh.geometry.dispose();
-        mob.mesh.material.dispose();
+        this.scene.remove(mob.model.group);
+        mob.model.dispose();
         this.mobs.delete(mobId);
     }
 
     clearMobs() {
         for (const [id, mob] of this.mobs) {
-            this.scene.remove(mob.mesh);
-            mob.mesh.geometry.dispose();
-            mob.mesh.material.dispose();
+            this.scene.remove(mob.model.group);
+            mob.model.dispose();
         }
         this.mobs.clear();
     }
 
-    // Update positions from server data
+    // Update positions and animations from server data
     updateVisuals(delta) {
         for (const [id, mob] of this.mobs) {
             // Interpolate position
-            mob.mesh.position.x += (mob.targetX - mob.mesh.position.x) * 0.15;
-            mob.mesh.position.z += (mob.targetZ - mob.mesh.position.z) * 0.15;
+            mob.model.group.position.x += (mob.targetX - mob.model.group.position.x) * 0.15;
+            mob.model.group.position.z += (mob.targetZ - mob.model.group.position.z) * 0.15;
 
             // Interpolate rotation
-            mob.mesh.rotation.y += (mob.targetRotation - mob.mesh.rotation.y) * 0.15;
+            let rotDiff = mob.targetRotation - mob.model.group.rotation.y;
+            while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+            while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+            mob.model.group.rotation.y += rotDiff * 0.15;
 
-            // Bobbing animation
-            mob.mesh.position.y = 0.5 + Math.sin(Date.now() * 0.003 + mob.mesh.position.x) * 0.1;
+            // Update model animation
+            const state = mob.data.state || 'idle';
+            mob.model.update(delta, state);
 
             // Billboard health bar
             const playerPos = this.game.player.mesh.position;
-            mob.healthBarBg.lookAt(playerPos.x, playerPos.y + 10, playerPos.z);
-            mob.healthBarFill.lookAt(playerPos.x, playerPos.y + 10, playerPos.z);
+            mob.healthBar.container.lookAt(playerPos.x, playerPos.y + 5, playerPos.z);
         }
     }
 
@@ -206,9 +191,9 @@ export class MobManager {
         const result = [];
         for (const [id, mob] of this.mobs) {
             if (mob.data.hp <= 0) continue;
-            const distance = position.distanceTo(mob.mesh.position);
+            const distance = position.distanceTo(mob.model.group.position);
             if (distance <= radius) {
-                result.push({ id, ...mob });
+                result.push({ id, mesh: mob.model.group, ...mob });
             }
         }
         return result;

@@ -5,6 +5,7 @@ import cors from 'cors';
 import { GameState } from './GameState.js';
 import { UserManager, PLAYER_COLORS } from './UserManager.js';
 import { ServerMobManager } from './MobManager.js';
+import { BuildingManager } from './BuildingManager.js';
 
 const app = express();
 app.use(cors());
@@ -22,13 +23,47 @@ const io = new Server(httpServer, {
 const gameState = new GameState();
 const userManager = new UserManager();
 const mobManager = new ServerMobManager();
+const buildingManager = new BuildingManager();
 
 // Track authenticated sockets
-const authenticatedSockets = new Map(); // socketId → username
+const authenticatedSockets = new Map();
+
+// Item drops from mobs
+const MOB_DROPS = {
+    'Slime': [{ typeId: 'meat', chance: 0.5, quantity: 1 }],
+    'Goblin': [
+        { typeId: 'meat', chance: 0.6, quantity: 1 },
+        { typeId: 'wood', chance: 0.3, quantity: 2 }
+    ],
+    'Orc': [
+        { typeId: 'meat', chance: 0.8, quantity: 2 },
+        { typeId: 'leather', chance: 0.4, quantity: 1 },
+        { typeId: 'stone', chance: 0.3, quantity: 2 }
+    ],
+    'Demon': [
+        { typeId: 'leather', chance: 0.6, quantity: 2 },
+        { typeId: 'stone', chance: 0.5, quantity: 3 }
+    ],
+    'Shadow': [
+        { typeId: 'stone', chance: 0.8, quantity: 3 }
+    ]
+};
+
+function getDropsForMob(mobType) {
+    const drops = [];
+    const typeDrops = MOB_DROPS[mobType] || MOB_DROPS['Slime'];
+
+    for (const drop of typeDrops) {
+        if (Math.random() < drop.chance) {
+            drops.push({ typeId: drop.typeId, quantity: drop.quantity });
+        }
+    }
+
+    return drops;
+}
 
 // ==================== HTTP ENDPOINTS ====================
 
-// Health check
 app.get('/', (req, res) => {
     res.json({
         status: 'ok',
@@ -37,28 +72,24 @@ app.get('/', (req, res) => {
     });
 });
 
-// Register
 app.post('/register', (req, res) => {
     const { username, password } = req.body;
     const result = userManager.register(username, password);
     res.json(result);
 });
 
-// Login
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     const result = userManager.login(username, password);
     res.json(result);
 });
 
-// Update profile
 app.post('/updateProfile', (req, res) => {
     const { username, displayName, color } = req.body;
     const result = userManager.updateProfile(username, { displayName, color });
     res.json(result);
 });
 
-// Get colors palette
 app.get('/colors', (req, res) => {
     res.json({ colors: PLAYER_COLORS });
 });
@@ -107,10 +138,13 @@ io.on('connection', (socket) => {
         // Send current mobs for this depth
         socket.emit('mobsSync', mobManager.getUpdatePacket(player.depth));
 
+        // Send buildings for this depth
+        socket.emit('buildingsSync', buildingManager.getBuildingsForDepth(player.depth));
+
         // Notify others
         socket.broadcast.emit('playerJoined', player);
 
-        console.log(`${userData.displayName} (Lvl ${userData.level}) se unió al juego`);
+        console.log(`${userData.displayName} (Lvl ${userData.level}) se unió`);
     });
 
     // Player moves
@@ -141,16 +175,14 @@ io.on('connection', (socket) => {
             // Create mobs for new depth if none exist
             const existingMobs = mobManager.getMobsForDepth(data.depth);
             if (existingMobs.length === 0) {
-                const newMobs = mobManager.spawnMobsForDepth(data.depth);
-                // Send new mobs to all players at this depth
-                const playersAtDepth = gameState.getPlayersForDepth(data.depth);
-                for (const [id, p] of Object.entries(playersAtDepth)) {
-                    io.to(id).emit('mobsSync', mobManager.getUpdatePacket(data.depth));
-                }
+                mobManager.spawnMobsForDepth(data.depth);
             }
 
-            // Send mobs for new depth to this player
+            // Send mobs for new depth
             socket.emit('mobsSync', mobManager.getUpdatePacket(data.depth));
+
+            // Send buildings for new depth
+            socket.emit('buildingsSync', buildingManager.getBuildingsForDepth(data.depth));
 
             // Send players at new depth
             socket.emit('currentPlayers', gameState.getPlayersForDepth(data.depth));
@@ -163,8 +195,6 @@ io.on('connection', (socket) => {
                 name: player.name,
                 level: player.level
             });
-
-            console.log(`${player.name} bajó a profundidad ${data.depth}`);
         }
     });
 
@@ -177,13 +207,17 @@ io.on('connection', (socket) => {
         if (!result) return;
 
         if (result.died) {
+            // Calculate drops
+            const drops = getDropsForMob(result.mob.type.name);
+
             // Notify all players at this depth
             const playersAtDepth = gameState.getPlayersForDepth(player.depth);
             for (const id of Object.keys(playersAtDepth)) {
                 io.to(id).emit('mobDied', {
                     mobId: data.mobId,
                     xp: result.xp,
-                    killerId: socket.id
+                    killerId: socket.id,
+                    drops: id === socket.id ? drops : [] // Only killer gets drops
                 });
             }
 
@@ -199,7 +233,7 @@ io.on('connection', (socket) => {
                 }
             }, 3000);
         } else {
-            // Broadcast damage to all at this depth
+            // Broadcast damage
             const playersAtDepth = gameState.getPlayersForDepth(player.depth);
             for (const id of Object.keys(playersAtDepth)) {
                 io.to(id).emit('mobDamaged', {
@@ -212,7 +246,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Player updates their stats (level up)
+    // Player level up
     socket.on('playerLevelUp', (data) => {
         const player = gameState.getPlayer(socket.id);
         const username = authenticatedSockets.get(socket.id);
@@ -222,10 +256,8 @@ io.on('connection', (socket) => {
             player.xp = data.xp;
             player.maxHp = data.maxHp;
 
-            // Save to persistent storage
             userManager.saveProgress(username, data.level, data.xp);
 
-            // Notify others
             socket.broadcast.emit('playerLeveledUp', {
                 id: socket.id,
                 level: data.level,
@@ -234,7 +266,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Player takes damage
+    // Player damaged
     socket.on('playerDamaged', (data) => {
         const player = gameState.getPlayer(socket.id);
         if (player) {
@@ -248,13 +280,71 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Building placed
+    socket.on('buildingPlaced', (data) => {
+        const player = gameState.getPlayer(socket.id);
+        if (!player) return;
+
+        const building = buildingManager.addBuilding({
+            type: data.type,
+            x: data.x,
+            z: data.z,
+            rotation: data.rotation || 0,
+            ownerId: socket.id,
+            contents: data.contents || []
+        }, player.depth);
+
+        // Notify all players at this depth
+        const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+        for (const id of Object.keys(playersAtDepth)) {
+            io.to(id).emit('buildingPlaced', building);
+        }
+    });
+
+    // Building removed
+    socket.on('buildingRemoved', (data) => {
+        const player = gameState.getPlayer(socket.id);
+        if (!player) return;
+
+        const building = buildingManager.getBuilding(data.buildingId);
+        if (!building || building.ownerId !== socket.id) return;
+
+        buildingManager.removeBuilding(data.buildingId);
+
+        const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+        for (const id of Object.keys(playersAtDepth)) {
+            io.to(id).emit('buildingRemoved', { buildingId: data.buildingId });
+        }
+    });
+
+    // Building contents updated (chest)
+    socket.on('buildingContentsUpdate', (data) => {
+        const player = gameState.getPlayer(socket.id);
+        if (!player) return;
+
+        const building = buildingManager.getBuilding(data.buildingId);
+        if (!building) return;
+
+        buildingManager.updateBuildingContents(data.buildingId, data.contents);
+
+        // Notify all players at this depth
+        const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+        for (const id of Object.keys(playersAtDepth)) {
+            if (id !== socket.id) {
+                io.to(id).emit('buildingContentsChanged', {
+                    buildingId: data.buildingId,
+                    contents: data.contents
+                });
+            }
+        }
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
         const player = gameState.getPlayer(socket.id);
         const username = authenticatedSockets.get(socket.id);
 
         if (player && username) {
-            // Save progress
             userManager.saveProgress(username, player.level, player.xp || 0);
             console.log(`${player.name} se desconectó (progreso guardado)`);
         }
@@ -268,7 +358,7 @@ io.on('connection', (socket) => {
 
 // ==================== GAME LOOP ====================
 
-const TICK_RATE = 20; // 20 updates per second
+const TICK_RATE = 20;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
 let lastTick = Date.now();
@@ -278,14 +368,13 @@ setInterval(() => {
     const delta = (now - lastTick) / 1000;
     lastTick = now;
 
-    // Update mobs with player positions
+    // Update mobs
     mobManager.update(delta, gameState.players);
 
     // Check for mob attacks
     for (const mob of mobManager.mobs.values()) {
         if (mob.hp <= 0) continue;
 
-        // Check attack result from update
         const playersAtDepth = Array.from(gameState.players.values())
             .filter(p => p.depth === mob.depth);
 
@@ -295,7 +384,6 @@ setInterval(() => {
             const dist = Math.sqrt(dx * dx + dz * dz);
 
             if (dist <= 1.5 && mob.attackCooldown <= 0) {
-                // Attack this player
                 io.to(player.id).emit('mobAttackedPlayer', {
                     mobId: mob.id,
                     damage: mob.damage
@@ -304,7 +392,7 @@ setInterval(() => {
         }
     }
 
-    // Send mob updates to each depth
+    // Send mob updates
     const activeDepths = new Set();
     for (const player of gameState.players.values()) {
         activeDepths.add(player.depth);
@@ -321,7 +409,7 @@ setInterval(() => {
 
 }, TICK_INTERVAL);
 
-// ==================== START SERVER ====================
+// ==================== START ====================
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {

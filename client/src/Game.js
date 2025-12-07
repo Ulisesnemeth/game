@@ -1,10 +1,18 @@
 import * as THREE from 'three';
-import { Player } from './Player.js';
+import { PlayerModel } from './models/PlayerModel.js';
 import { World } from './World.js';
 import { MobManager } from './MobManager.js';
 import { Combat } from './Combat.js';
 import { Network } from './Network.js';
 import { UI } from './UI.js';
+import { Inventory } from './systems/Inventory.js';
+import { Survival } from './systems/Survival.js';
+import { Crafting } from './systems/Crafting.js';
+import { Building } from './systems/Building.js';
+import { InventoryUI } from './ui/InventoryUI.js';
+import { SurvivalUI } from './ui/SurvivalUI.js';
+import { CraftingUI } from './ui/CraftingUI.js';
+import { BuildingUI } from './ui/BuildingUI.js';
 
 export class Game {
     constructor(canvas, userData) {
@@ -15,8 +23,13 @@ export class Game {
 
         // Game state
         this.currentDepth = 0;
-        this.players = new Map(); // Other players: id → {mesh, data}
-        this.allPlayersData = new Map(); // All players including other depths
+        this.players = new Map();
+        this.allPlayersData = new Map();
+
+        // Screen shake
+        this.shakeIntensity = 0;
+        this.shakeDuration = 0;
+        this.shakeOffset = new THREE.Vector3();
 
         // Initialize Three.js
         this.initRenderer();
@@ -26,17 +39,252 @@ export class Game {
 
         // Initialize game systems
         this.world = new World(this.scene);
-        this.player = new Player(this.scene, this.camera, userData);
+        this.initPlayer(userData);
         this.mobManager = new MobManager(this.scene, this);
         this.combat = new Combat(this);
         this.network = new Network(this);
         this.ui = new UI(this);
 
+        // New systems
+        this.survival = new Survival(this);
+        this.crafting = new Crafting(this);
+        this.building = new Building(this);
+
+        // New UIs
+        this.inventoryUI = new InventoryUI(this);
+        this.survivalUI = new SurvivalUI(this);
+        this.craftingUI = new CraftingUI(this);
+        this.buildingUI = new BuildingUI(this);
+
         // Input state
         this.keys = {};
         this.mouse = { x: 0, y: 0, clicked: false };
+        this.mouseWorldPos = null;
 
         this.setupInput();
+    }
+
+    initPlayer(userData) {
+        // Player with new model
+        this.player = {
+            name: userData.displayName || userData.username || 'Jugador',
+            username: userData.username,
+            level: userData.level || 1,
+            xp: userData.xp || 0,
+            color: userData.color || 0x00d4ff,
+            maxHp: 100 + (userData.level - 1) * 20,
+            hp: 100 + (userData.level - 1) * 20,
+            baseDamage: 10 + (userData.level - 1) * 5,
+            attackCooldown: 0,
+            attackCooldownMax: 0.5,
+            speed: 8,
+            inventory: new Inventory(4, 3),
+            model: new PlayerModel(userData.color || 0x00d4ff),
+            mesh: null, // Will be set below
+            isMoving: false,
+            isAttacking: false
+        };
+
+        this.player.mesh = this.player.model.group;
+        this.player.mesh.position.set(0, 0, 0);
+        this.scene.add(this.player.mesh);
+
+        // Attach methods
+        this.attachPlayerMethods();
+    }
+
+    attachPlayerMethods() {
+        const self = this;
+        const player = this.player;
+
+        player.update = function (delta, keys, mouse) {
+            self.updatePlayerMovement(delta, keys, mouse);
+        };
+
+        player.canAttack = function () {
+            return this.attackCooldown <= 0;
+        };
+
+        player.attack = function () {
+            if (!this.canAttack()) return false;
+            this.attackCooldown = this.attackCooldownMax;
+            this.isAttacking = true;
+            return true;
+        };
+
+        player.getDamage = function () {
+            const bonus = this.inventory.getWeaponBonus();
+            const damage = this.baseDamage + bonus;
+            const isCrit = Math.random() < 0.1;
+            return {
+                damage: isCrit ? damage * 2 : damage,
+                isCrit
+            };
+        };
+
+        player.getAttackPosition = function () {
+            const forward = new THREE.Vector3(0, 0, 1);
+            forward.applyQuaternion(this.mesh.quaternion);
+            return this.mesh.position.clone().add(forward.multiplyScalar(1.5));
+        };
+
+        player.getAttackRadius = function () {
+            return 2;
+        };
+
+        player.takeDamage = function (amount) {
+            this.hp = Math.max(0, this.hp - amount);
+            this.model.playHit();
+
+            // Screen shake!
+            self.triggerScreenShake(0.5, 0.2);
+
+            // Vignette effect
+            self.showDamageVignette();
+
+            if (this.hp <= 0) {
+                this.die();
+            }
+
+            return this.hp;
+        };
+
+        player.addXp = function (amount) {
+            this.xp += amount;
+
+            const xpNeeded = this.getXpForNextLevel();
+            while (this.xp >= xpNeeded) {
+                this.xp -= xpNeeded;
+                this.levelUp();
+            }
+
+            return this.level;
+        };
+
+        player.getXpForNextLevel = function () {
+            return Math.floor(100 * Math.pow(1.5, this.level - 1));
+        };
+
+        player.levelUp = function () {
+            this.level++;
+            this.maxHp = 100 + (this.level - 1) * 20;
+            this.hp = this.maxHp;
+            this.baseDamage = 10 + (this.level - 1) * 5;
+            self.ui.showLevelUp(this.level);
+            return this.level;
+        };
+
+        player.die = function () {
+            console.log('¡Has muerto! Respawning...');
+            this.hp = this.maxHp;
+            this.mesh.position.set(0, 0, 0);
+            const event = new CustomEvent('playerDeath', { detail: { player: this } });
+            window.dispatchEvent(event);
+        };
+
+        player.getPosition = function () {
+            return this.mesh.position.clone();
+        };
+    }
+
+    updatePlayerMovement(delta, keys, mouse) {
+        const player = this.player;
+
+        // Handle attack cooldown
+        if (player.attackCooldown > 0) {
+            player.attackCooldown -= delta;
+        }
+        player.isAttacking = false;
+
+        // Movement
+        const direction = new THREE.Vector3();
+        if (keys['KeyW'] || keys['ArrowUp']) direction.z -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) direction.z += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) direction.x -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) direction.x += 1;
+
+        // Apply survival speed modifier
+        const speedMod = this.survival?.getSpeedMultiplier() || 1;
+
+        player.isMoving = direction.length() > 0;
+
+        if (player.isMoving) {
+            direction.normalize();
+            direction.multiplyScalar(player.speed * speedMod * delta);
+            player.mesh.position.add(direction);
+
+            const bounds = 40;
+            player.mesh.position.x = Math.max(-bounds, Math.min(bounds, player.mesh.position.x));
+            player.mesh.position.z = Math.max(-bounds, Math.min(bounds, player.mesh.position.z));
+        }
+
+        // Face mouse direction
+        this.raycaster.setFromCamera(new THREE.Vector2(mouse.x, mouse.y), this.camera);
+        const intersectPoint = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(this.groundPlane, intersectPoint);
+
+        if (intersectPoint) {
+            this.mouseWorldPos = intersectPoint;
+            const dx = intersectPoint.x - player.mesh.position.x;
+            const dz = intersectPoint.z - player.mesh.position.z;
+            const targetRotation = Math.atan2(dx, dz);
+
+            let diff = targetRotation - player.mesh.rotation.y;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+
+            player.mesh.rotation.y += diff * 0.15;
+        }
+
+        // Update player model animation
+        player.model.update(delta, player.isMoving, player.isAttacking);
+    }
+
+    // Screen shake effect
+    triggerScreenShake(intensity = 0.5, duration = 0.3) {
+        this.shakeIntensity = intensity;
+        this.shakeDuration = duration;
+    }
+
+    updateScreenShake(delta) {
+        if (this.shakeDuration > 0) {
+            this.shakeDuration -= delta;
+            const decay = this.shakeDuration > 0 ? this.shakeIntensity : 0;
+
+            this.shakeOffset.set(
+                (Math.random() - 0.5) * decay * 2,
+                (Math.random() - 0.5) * decay,
+                (Math.random() - 0.5) * decay * 2
+            );
+        } else {
+            this.shakeOffset.set(0, 0, 0);
+        }
+    }
+
+    // Damage vignette effect
+    showDamageVignette() {
+        let vignette = document.getElementById('damage-vignette');
+        if (!vignette) {
+            vignette = document.createElement('div');
+            vignette.id = 'damage-vignette';
+            vignette.style.cssText = `
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                pointer-events: none;
+                z-index: 999;
+                background: radial-gradient(ellipse at center, 
+                    transparent 40%, 
+                    rgba(255, 0, 0, 0.4) 100%);
+                opacity: 0;
+                transition: opacity 0.1s;
+            `;
+            document.body.appendChild(vignette);
+        }
+
+        vignette.style.opacity = '1';
+        setTimeout(() => {
+            vignette.style.opacity = '0';
+        }, 150);
     }
 
     initRenderer() {
@@ -63,6 +311,10 @@ export class Game {
         this.camera.position.set(0, 25, 15);
         this.camera.lookAt(0, 0, 0);
         this.cameraOffset = new THREE.Vector3(0, 25, 15);
+
+        // For raycasting
+        this.raycaster = new THREE.Raycaster();
+        this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     }
 
     initLights() {
@@ -74,24 +326,21 @@ export class Game {
         directional.castShadow = true;
         directional.shadow.mapSize.width = 2048;
         directional.shadow.mapSize.height = 2048;
-        directional.shadow.camera.near = 0.5;
-        directional.shadow.camera.far = 100;
-        directional.shadow.camera.left = -30;
-        directional.shadow.camera.right = 30;
-        directional.shadow.camera.top = 30;
-        directional.shadow.camera.bottom = -30;
         this.scene.add(directional);
 
         this.playerLight = new THREE.PointLight(0x00d4ff, 0.5, 15);
-        this.playerLight.position.set(0, 3, 0);
         this.scene.add(this.playerLight);
     }
 
     setupInput() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.code] = true;
+
             if (e.code === 'KeyE') {
                 this.tryChangeDepth();
+            }
+            if (e.code === 'KeyB') {
+                // Toggle building mode (if holding something to place)
             }
         });
 
@@ -107,7 +356,13 @@ export class Game {
         window.addEventListener('mousedown', (e) => {
             if (e.button === 0) {
                 this.mouse.clicked = true;
-                this.combat.playerAttack();
+
+                // Check if building mode
+                if (this.building?.isPlacing) {
+                    // Handled by BuildingUI
+                } else {
+                    this.combat.playerAttack();
+                }
             }
         });
 
@@ -135,21 +390,18 @@ export class Game {
 
         this.world.setDepth(newDepth);
         this.mobManager.clearMobs();
-        this.player.mesh.position.set(0, 0.5, 0);
+        this.player.mesh.position.set(0, 0, 0);
         this.ui.updateDepth(newDepth);
         this.network.sendDepthChange(newDepth);
 
-        // Clear other players (will be repopulated by server)
         for (const [id, data] of this.players) {
             if (data.mesh) {
                 this.scene.remove(data.mesh);
-                data.mesh.geometry.dispose();
-                data.mesh.material.dispose();
             }
         }
         this.players.clear();
 
-        console.log(`Profundidad cambiada: ${oldDepth} → ${newDepth}`);
+        console.log(`Profundidad: ${oldDepth} → ${newDepth}`);
     }
 
     start() {
@@ -164,7 +416,6 @@ export class Game {
 
     gameLoop() {
         if (!this.isRunning) return;
-
         requestAnimationFrame(() => this.gameLoop());
 
         const delta = this.clock.getDelta();
@@ -173,29 +424,46 @@ export class Game {
     }
 
     update(delta) {
+        // Player
         this.player.update(delta, this.keys, this.mouse);
         this.updateCamera();
+        this.updateScreenShake(delta);
 
+        // Light follows player
         this.playerLight.position.copy(this.player.mesh.position);
         this.playerLight.position.y += 3;
 
-        // Mobs are now server-controlled, just update visuals
+        // Systems
         this.mobManager.updateVisuals(delta);
-
         this.combat.update(delta);
         this.world.update(delta);
 
+        // Survival
+        const isMoving = this.player.isMoving;
+        this.survival?.update(delta, isMoving);
+        this.survivalUI?.update(this.survival);
+
+        // Crafting (check for nearby crafting table)
+        this.crafting?.update(this.building?.getBuildings());
+
+        // Building
+        this.building?.update(delta, this.player.mesh.position, this.mouseWorldPos);
+        this.buildingUI?.update();
+
+        // Network
         this.network.sendPosition(this.player.mesh.position, this.player.mesh.rotation.y);
         this.updateOtherPlayers();
 
-        // Update player indicators
+        // UI
         this.ui.updatePlayerIndicators(this.players, this.player, this.camera);
+        this.ui.updateHealth(this.player.hp, this.player.maxHp);
+        this.ui.updateXp(this.player.xp, this.player.getXpForNextLevel(), this.player.level);
     }
 
     updateCamera() {
-        const target = this.player.mesh.position.clone().add(this.cameraOffset);
+        const target = this.player.mesh.position.clone().add(this.cameraOffset).add(this.shakeOffset);
         this.camera.position.lerp(target, 0.1);
-        this.camera.lookAt(this.player.mesh.position);
+        this.camera.lookAt(this.player.mesh.position.clone().add(this.shakeOffset));
     }
 
     updateOtherPlayers() {
@@ -207,33 +475,23 @@ export class Game {
     }
 
     addOtherPlayer(id, data) {
-        const geometry = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
-        const color = data.color || 0x888888;
-        const material = new THREE.MeshStandardMaterial({
-            color: color,
-            metalness: 0.3,
-            roughness: 0.7,
-            emissive: color,
-            emissiveIntensity: 0.2
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(data.x || 0, 0.5, data.z || 0);
-        mesh.castShadow = true;
-        this.scene.add(mesh);
+        const model = new PlayerModel(data.color || 0x888888);
+        model.group.position.set(data.x || 0, 0, data.z || 0);
+        this.scene.add(model.group);
 
         this.players.set(id, {
-            mesh,
-            targetPosition: new THREE.Vector3(data.x || 0, 0.5, data.z || 0),
+            mesh: model.group,
+            model: model,
+            targetPosition: new THREE.Vector3(data.x || 0, 0, data.z || 0),
             name: data.name || 'Jugador',
-            color: color,
+            color: data.color || 0x888888,
             level: data.level || 1,
             depth: data.depth || 0
         });
 
-        // Update all players data
         this.allPlayersData.set(id, {
             name: data.name,
-            color: color,
+            color: data.color || 0x888888,
             level: data.level || 1,
             depth: data.depth || 0
         });
@@ -243,10 +501,9 @@ export class Game {
 
     removeOtherPlayer(id) {
         const player = this.players.get(id);
-        if (player && player.mesh) {
+        if (player) {
             this.scene.remove(player.mesh);
-            player.mesh.geometry.dispose();
-            player.mesh.material.dispose();
+            player.model?.dispose();
         }
         this.players.delete(id);
         this.allPlayersData.delete(id);
@@ -256,10 +513,13 @@ export class Game {
     updateOtherPlayerPosition(id, x, z, rotation) {
         const player = this.players.get(id);
         if (player) {
-            player.targetPosition.set(x, 0.5, z);
+            player.targetPosition.set(x, 0, z);
             if (player.mesh) {
                 player.mesh.rotation.y = rotation;
             }
+            // Update model animation
+            const isMoving = player.targetPosition.distanceTo(player.mesh.position) > 0.1;
+            player.model?.update(this.clock.getDelta(), isMoving, false);
         }
     }
 
@@ -279,7 +539,6 @@ export class Game {
     onWindowResize() {
         const width = window.innerWidth;
         const height = window.innerHeight;
-
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
