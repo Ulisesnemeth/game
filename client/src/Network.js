@@ -52,17 +52,36 @@ export class Network {
         });
 
         this.socket.on('currentPlayers', (players) => {
+            // Clear existing players and re-add from server data
+            // This ensures we have the correct list when changing depth
+            const currentPlayerIds = new Set(Object.keys(players));
+
+            // Remove players not in the new list
+            for (const [id, data] of this.game.players) {
+                if (!currentPlayerIds.has(id)) {
+                    this.game.removeOtherPlayer(id);
+                }
+            }
+
+            // Add/update players from server
             for (const [id, data] of Object.entries(players)) {
                 if (id !== this.playerId) {
-                    this.game.addOtherPlayer(id, data);
+                    if (!this.game.players.has(id)) {
+                        this.game.addOtherPlayer(id, data);
+                    }
                 }
             }
         });
 
         this.socket.on('playerJoined', (data) => {
             if (data.id !== this.playerId) {
-                this.game.addOtherPlayer(data.id, data);
-                console.log(`${data.name} se unió (Nivel ${data.level})`);
+                // Only add if at same depth
+                if (data.depth === this.game.currentDepth) {
+                    if (!this.game.players.has(data.id)) {
+                        this.game.addOtherPlayer(data.id, data);
+                        console.log(`${data.name} se unió (Nivel ${data.level})`);
+                    }
+                }
             }
         });
 
@@ -72,19 +91,31 @@ export class Network {
 
         this.socket.on('playerMoved', (data) => {
             if (data.id !== this.playerId) {
+                // If player doesn't exist yet but is at our depth, add them
+                if (!this.game.players.has(data.id) && data.depth === this.game.currentDepth) {
+                    this.game.addOtherPlayer(data.id, data);
+                }
                 this.game.updateOtherPlayerPosition(data.id, data.x, data.z, data.rotation);
             }
         });
 
         this.socket.on('playerChangedDepth', (data) => {
             if (data.id !== this.playerId) {
-                this.game.updatePlayerData(data.id, { depth: data.depth, level: data.level });
-
-                const player = this.game.players.get(data.id);
-                if (player && player.mesh) {
-                    player.mesh.visible = data.depth === this.game.currentDepth;
-                    player.depth = data.depth;
+                // If player came TO our depth, add them
+                if (data.depth === this.game.currentDepth && !this.game.players.has(data.id)) {
+                    this.game.addOtherPlayer(data.id, {
+                        name: data.name,
+                        level: data.level,
+                        depth: data.depth,
+                        x: 0, z: 0, color: 0x888888
+                    });
                 }
+                // If player LEFT our depth, remove them
+                else if (data.oldDepth === this.game.currentDepth && data.depth !== this.game.currentDepth) {
+                    this.game.removeOtherPlayer(data.id);
+                }
+
+                this.game.updatePlayerData(data.id, { depth: data.depth, level: data.level });
             }
         });
 

@@ -8,7 +8,7 @@ import { UI } from './UI.js';
 import { Inventory } from './systems/Inventory.js';
 import { Survival } from './systems/Survival.js';
 import { Crafting } from './systems/Crafting.js';
-import { Building } from './systems/Building.js';
+import { Building, BUILDING_TYPES } from './systems/Building.js';
 import { ParticleSystem } from './systems/ParticleSystem.js';
 import { InventoryUI } from './ui/InventoryUI.js';
 import { SurvivalUI } from './ui/SurvivalUI.js';
@@ -213,7 +213,23 @@ export class Game {
         if (player.isMoving) {
             direction.normalize();
             direction.multiplyScalar(player.speed * speedMod * delta);
-            player.mesh.position.add(direction);
+
+            // Calculate new position
+            const newX = player.mesh.position.x + direction.x;
+            const newZ = player.mesh.position.z + direction.z;
+
+            // Check building collision
+            if (!this.checkBuildingCollision(newX, newZ)) {
+                player.mesh.position.x = newX;
+                player.mesh.position.z = newZ;
+            } else {
+                // Try to slide along X or Z axis
+                if (!this.checkBuildingCollision(newX, player.mesh.position.z)) {
+                    player.mesh.position.x = newX;
+                } else if (!this.checkBuildingCollision(player.mesh.position.x, newZ)) {
+                    player.mesh.position.z = newZ;
+                }
+            }
 
             const bounds = 40;
             player.mesh.position.x = Math.max(-bounds, Math.min(bounds, player.mesh.position.x));
@@ -341,8 +357,14 @@ export class Game {
             if (e.code === 'KeyE') {
                 this.tryChangeDepth();
             }
-            if (e.code === 'KeyB') {
-                // Toggle building mode (if holding something to place)
+            if (e.code === 'KeyF') {
+                this.tryInteract();
+            }
+            if (e.code === 'KeyR' && this.building?.isPlacing) {
+                this.building.rotatePlacing();
+            }
+            if (e.code === 'Escape' && this.building?.isPlacing) {
+                this.building.cancelPlacing();
             }
         });
 
@@ -386,19 +408,112 @@ export class Game {
         }
     }
 
+    checkBuildingCollision(x, z) {
+        if (!this.building) return false;
+
+        const playerRadius = 0.4; // Player collision radius
+
+        for (const [id, building] of this.building.buildings) {
+            const type = BUILDING_TYPES[building.data.type];
+            if (!type || !type.collision) continue;
+
+            // Get building bounds accounting for rotation
+            const bx = building.data.x;
+            const bz = building.data.z;
+            const rot = building.data.rotation || 0;
+
+            // Simplified AABB (ignoring rotation for now)
+            let halfW = type.width / 2;
+            let halfD = type.depth / 2;
+
+            // Swap if rotated 90 degrees
+            if (Math.abs(rot - Math.PI / 2) < 0.1 || Math.abs(rot - Math.PI * 1.5) < 0.1) {
+                [halfW, halfD] = [halfD, halfW];
+            }
+
+            // Check collision with padding for player radius
+            if (x + playerRadius > bx - halfW &&
+                x - playerRadius < bx + halfW &&
+                z + playerRadius > bz - halfD &&
+                z - playerRadius < bz + halfD) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    tryInteract() {
+        if (!this.building) return;
+
+        const result = this.building.interact();
+        if (!result) return;
+
+        switch (result.action) {
+            case 'openStorage':
+                console.log('Abriendo cofre...', result.storage);
+                this.showStorageUI(result.building);
+                break;
+            case 'openCrafting':
+                console.log('Abriendo mesa de crafteo...');
+                this.craftingUI?.open();
+                break;
+            case 'sleep':
+                console.log('Durmiendo...');
+                this.survival?.sleep();
+                this.showSleepEffect();
+                break;
+            case 'toggleDoor':
+                // Future: animate door
+                break;
+        }
+    }
+
+    showStorageUI(building) {
+        // Simple alert for now - TODO: full storage UI
+        const contents = building.data.contents || [];
+        alert(`Cofre contiene ${contents.length} items. (UI de cofre en desarrollo)`);
+    }
+
+    showSleepEffect() {
+        let overlay = document.getElementById('sleep-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'sleep-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: black;
+                opacity: 0;
+                transition: opacity 1s;
+                pointer-events: none;
+                z-index: 2000;
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        overlay.style.opacity = '1';
+        setTimeout(() => {
+            overlay.style.opacity = '0';
+        }, 2000);
+    }
+
     changeDepth(newDepth) {
         const oldDepth = this.currentDepth;
         this.currentDepth = newDepth;
 
         this.world.setDepth(newDepth);
         this.mobManager.clearMobs();
+        this.particles?.clear();
         this.player.mesh.position.set(0, 0, 0);
         this.ui.updateDepth(newDepth);
         this.network.sendDepthChange(newDepth);
 
+        // Clean up all other player meshes - will be re-synced from server
         for (const [id, data] of this.players) {
             if (data.mesh) {
                 this.scene.remove(data.mesh);
+                data.model?.dispose();
             }
         }
         this.players.clear();

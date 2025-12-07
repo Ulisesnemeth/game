@@ -140,10 +140,15 @@ io.on('connection', (socket) => {
         socket.emit('buildingsSync', buildingManager.getBuildingsForDepth(player.depth));
         socket.emit('resourcesSync', resourceManager.getAllResourcesForDepth(player.depth));
 
-        // Notify others
-        socket.broadcast.emit('playerJoined', player);
+        // Notify ONLY players at same depth (not all players)
+        const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+        for (const id of Object.keys(playersAtDepth)) {
+            if (id !== socket.id) {
+                io.to(id).emit('playerJoined', player);
+            }
+        }
 
-        console.log(`${userData.displayName} (Lvl ${userData.level}) se unió`);
+        console.log(`${userData.displayName} (Lvl ${userData.level}) se unió en profundidad ${player.depth}`);
     });
 
     // Player moves
@@ -154,13 +159,19 @@ io.on('connection', (socket) => {
             player.z = data.z;
             player.rotation = data.rotation || 0;
 
-            socket.broadcast.emit('playerMoved', {
-                id: socket.id,
-                x: data.x,
-                z: data.z,
-                rotation: data.rotation,
-                depth: player.depth
-            });
+            // Only send to players at the same depth
+            const playersAtDepth = gameState.getPlayersForDepth(player.depth);
+            for (const id of Object.keys(playersAtDepth)) {
+                if (id !== socket.id) {
+                    io.to(id).emit('playerMoved', {
+                        id: socket.id,
+                        x: data.x,
+                        z: data.z,
+                        rotation: data.rotation,
+                        depth: player.depth
+                    });
+                }
+            }
         }
     });
 
