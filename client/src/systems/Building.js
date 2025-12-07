@@ -127,11 +127,12 @@ export class Building {
         this.placingType = null;
     }
 
-    // Rotate placement
+    // Rotate placement (10 degrees per press)
     rotatePlacing() {
-        this.placingRotation += Math.PI / 2;
+        const rotationStep = (10 * Math.PI) / 180; // 10 degrees in radians
+        this.placingRotation += rotationStep;
         if (this.placingRotation >= Math.PI * 2) {
-            this.placingRotation = 0;
+            this.placingRotation -= Math.PI * 2;
         }
     }
 

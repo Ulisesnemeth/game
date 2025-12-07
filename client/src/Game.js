@@ -14,6 +14,7 @@ import { InventoryUI } from './ui/InventoryUI.js';
 import { SurvivalUI } from './ui/SurvivalUI.js';
 import { CraftingUI } from './ui/CraftingUI.js';
 import { BuildingUI } from './ui/BuildingUI.js';
+import { StorageUI } from './ui/StorageUI.js';
 
 export class Game {
     constructor(canvas, userData) {
@@ -57,6 +58,7 @@ export class Game {
         this.survivalUI = new SurvivalUI(this);
         this.craftingUI = new CraftingUI(this);
         this.buildingUI = new BuildingUI(this);
+        this.storageUI = new StorageUI(this);
 
         // Input state
         this.keys = {};
@@ -470,9 +472,7 @@ export class Game {
     }
 
     showStorageUI(building) {
-        // Simple alert for now - TODO: full storage UI
-        const contents = building.data.contents || [];
-        alert(`Cofre contiene ${contents.length} items. (UI de cofre en desarrollo)`);
+        this.storageUI?.open(building);
     }
 
     showSleepEffect() {
@@ -541,41 +541,46 @@ export class Game {
     }
 
     update(delta) {
-        // Player
-        this.player.update(delta, this.keys, this.mouse);
-        this.updateCamera();
-        this.updateScreenShake(delta);
+        // Skip player/camera updates if storage UI is open
+        const storageOpen = this.storageUI?.isOpen;
 
-        // Light follows player
-        this.playerLight.position.copy(this.player.mesh.position);
-        this.playerLight.position.y += 3;
+        if (!storageOpen) {
+            // Player
+            this.player.update(delta, this.keys, this.mouse);
+            this.updateCamera();
+            this.updateScreenShake(delta);
 
-        // Systems
-        this.mobManager.updateVisuals(delta);
-        this.combat.update(delta);
-        this.world.update(delta);
-        this.particles?.update(delta);
+            // Light follows player
+            this.playerLight.position.copy(this.player.mesh.position);
+            this.playerLight.position.y += 3;
 
-        // Survival
-        const isMoving = this.player.isMoving;
-        this.survival?.update(delta, isMoving);
-        this.survivalUI?.update(this.survival);
+            // Systems
+            this.mobManager.updateVisuals(delta);
+            this.combat.update(delta);
+            this.world.update(delta);
+            this.particles?.update(delta);
 
-        // Crafting (check for nearby crafting table)
-        this.crafting?.update(this.building?.getBuildings());
+            // Survival
+            const isMoving = this.player.isMoving;
+            this.survival?.update(delta, isMoving);
+            this.survivalUI?.update(this.survival);
 
-        // Building
-        this.building?.update(delta, this.player.mesh.position, this.mouseWorldPos);
-        this.buildingUI?.update();
+            // Crafting (check for nearby crafting table)
+            this.crafting?.update(this.building?.getBuildings());
 
-        // Network
-        this.network.sendPosition(this.player.mesh.position, this.player.mesh.rotation.y);
-        this.updateOtherPlayers();
+            // Building
+            this.building?.update(delta, this.player.mesh.position, this.mouseWorldPos);
+            this.buildingUI?.update();
 
-        // UI
-        this.ui.updatePlayerIndicators(this.players, this.player, this.camera);
-        this.ui.updateHealth(this.player.hp, this.player.maxHp);
-        this.ui.updateXp(this.player.xp, this.player.getXpForNextLevel(), this.player.level);
+            // Network
+            this.network.sendPosition(this.player.mesh.position, this.player.mesh.rotation.y);
+            this.updateOtherPlayers();
+
+            // UI
+            this.ui.updatePlayerIndicators(this.players, this.player, this.camera);
+            this.ui.updateHealth(this.player.hp, this.player.maxHp);
+            this.ui.updateXp(this.player.xp, this.player.getXpForNextLevel(), this.player.level);
+        }
     }
 
     updateCamera() {
