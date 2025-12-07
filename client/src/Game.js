@@ -10,6 +10,7 @@ import { Survival } from './systems/Survival.js';
 import { Crafting } from './systems/Crafting.js';
 import { Building, BUILDING_TYPES } from './systems/Building.js';
 import { ParticleSystem } from './systems/ParticleSystem.js';
+import { RoomDetector } from './systems/RoomDetector.js';
 import { InventoryUI } from './ui/InventoryUI.js';
 import { SurvivalUI } from './ui/SurvivalUI.js';
 import { CraftingUI } from './ui/CraftingUI.js';
@@ -52,6 +53,8 @@ export class Game {
         this.crafting = new Crafting(this);
         this.building = new Building(this);
         this.particles = new ParticleSystem(this.scene);
+        this.roomDetector = new RoomDetector(this);
+        this.isInRoom = false;
 
         // New UIs
         this.inventoryUI = new InventoryUI(this);
@@ -502,6 +505,7 @@ export class Game {
         this.world.setDepth(newDepth);
         this.mobManager.clearMobs();
         this.particles?.clear();
+        this.roomDetector?.clear();
         this.player.mesh.position.set(0, 0, 0);
         this.ui.updateDepth(newDepth);
         this.network.sendDepthChange(newDepth);
@@ -568,6 +572,9 @@ export class Game {
             // Building
             this.building?.update(delta, this.player.mesh.position, this.mouseWorldPos);
             this.buildingUI?.update();
+
+            // Room detection (auto-generates floors for closed rooms)
+            this.roomDetector?.update(delta);
 
             // Network
             this.network.sendPosition(this.player.mesh.position, this.player.mesh.rotation.y);

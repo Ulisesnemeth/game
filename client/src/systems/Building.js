@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 /**
  * Building types for construction system
+ * Only walls have collision - furniture can be walked through
  */
 export const BUILDING_TYPES = {
     wall: {
@@ -11,16 +12,7 @@ export const BUILDING_TYPES = {
         height: 2,
         depth: 0.2,
         color: 0x8b4513,
-        collision: true
-    },
-    floor: {
-        id: 'floor',
-        name: 'Piso',
-        width: 4,
-        height: 0.1,
-        depth: 4,
-        color: 0x654321,
-        collision: false
+        collision: true // Only walls block movement
     },
     door: {
         id: 'door',
@@ -29,7 +21,7 @@ export const BUILDING_TYPES = {
         height: 2,
         depth: 0.2,
         color: 0x5c3317,
-        collision: false, // Doors don't block
+        collision: false,
         interactable: true
     },
     chest_small: {
@@ -39,7 +31,7 @@ export const BUILDING_TYPES = {
         height: 0.6,
         depth: 0.5,
         color: 0x8b6914,
-        collision: true,
+        collision: false, // Can walk through
         interactable: true,
         storage: { width: 3, height: 3 }
     },
@@ -50,7 +42,7 @@ export const BUILDING_TYPES = {
         height: 0.8,
         depth: 0.6,
         color: 0xa0782c,
-        collision: true,
+        collision: false, // Can walk through
         interactable: true,
         storage: { width: 6, height: 4 }
     },
@@ -61,7 +53,7 @@ export const BUILDING_TYPES = {
         height: 0.9,
         depth: 1,
         color: 0x5a3825,
-        collision: true,
+        collision: false, // Can walk through
         interactable: true
     },
     bed: {
@@ -71,7 +63,7 @@ export const BUILDING_TYPES = {
         height: 0.5,
         depth: 2,
         color: 0x8b0000,
-        collision: true,
+        collision: false, // Can walk through
         interactable: true
     }
 };
