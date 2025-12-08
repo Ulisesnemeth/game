@@ -266,6 +266,20 @@ export class Inventory {
         return type?.damageBonus || 0;
     }
 
+    // Get tool bonus for a specific resource type (tree, rock)
+    getToolBonus(resourceType) {
+        if (!this.equippedTool) return 1.0; // No bonus without tool
+        const type = getItemType(this.equippedTool.typeId);
+        if (!type || !type.resourceBonus) return 1.0;
+        return type.resourceBonus[resourceType] || 1.0;
+    }
+
+    // Get equipped tool info
+    getEquippedTool() {
+        if (!this.equippedTool) return null;
+        return getItemType(this.equippedTool.typeId);
+    }
+
     // Serialize for network/storage
     serialize() {
         return {

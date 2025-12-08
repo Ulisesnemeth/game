@@ -44,6 +44,25 @@ export const RECIPES = [
         requiresCraftingTable: true
     },
     {
+        id: 'axe_wood',
+        name: 'Hacha de Madera',
+        result: { typeId: 'axe_wood', quantity: 1 },
+        ingredients: [
+            { typeId: 'wood', quantity: 3 }
+        ],
+        requiresCraftingTable: false
+    },
+    {
+        id: 'axe_stone',
+        name: 'Hacha de Piedra',
+        result: { typeId: 'axe_stone', quantity: 1 },
+        ingredients: [
+            { typeId: 'wood', quantity: 2 },
+            { typeId: 'stone', quantity: 3 }
+        ],
+        requiresCraftingTable: true
+    },
+    {
         id: 'chest_small',
         name: 'Cofre Pequeño',
         result: { buildingTypeId: 'chest_small' },

@@ -68,26 +68,54 @@ export const ITEM_TYPES = {
     PICKAXE_WOOD: {
         id: 'pickaxe_wood',
         name: 'Pico de Madera',
-        description: 'Recolecta recursos más rápido',
+        description: 'Ideal para picar piedras (+50% daño)',
         category: 'tool',
         width: 1,
         height: 2,
         stackable: false,
         durability: 50,
         miningSpeed: 1.5,
+        resourceBonus: { rock: 1.5, tree: 0.5 }, // +50% a piedras, -50% a árboles
         icon: '⛏️'
     },
     PICKAXE_STONE: {
         id: 'pickaxe_stone',
         name: 'Pico de Piedra',
-        description: 'Recolecta recursos mucho más rápido',
+        description: 'Ideal para picar piedras (+100% daño)',
         category: 'tool',
         width: 1,
         height: 2,
         stackable: false,
         durability: 100,
         miningSpeed: 2,
+        resourceBonus: { rock: 2.0, tree: 0.5 }, // +100% a piedras, -50% a árboles
         icon: '⛏️'
+    },
+    AXE_WOOD: {
+        id: 'axe_wood',
+        name: 'Hacha de Madera',
+        description: 'Ideal para talar árboles (+50% daño)',
+        category: 'tool',
+        width: 1,
+        height: 2,
+        stackable: false,
+        durability: 50,
+        miningSpeed: 1.5,
+        resourceBonus: { tree: 1.5, rock: 0.5 }, // +50% a árboles, -50% a piedras
+        icon: '🪓'
+    },
+    AXE_STONE: {
+        id: 'axe_stone',
+        name: 'Hacha de Piedra',
+        description: 'Ideal para talar árboles (+100% daño)',
+        category: 'tool',
+        width: 1,
+        height: 2,
+        stackable: false,
+        durability: 100,
+        miningSpeed: 2,
+        resourceBonus: { tree: 2.0, rock: 0.5 }, // +100% a árboles, -50% a piedras
+        icon: '🪓'
     },
 
     // Weapons

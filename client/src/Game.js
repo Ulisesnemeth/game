@@ -11,6 +11,7 @@ import { Crafting } from './systems/Crafting.js';
 import { Building, BUILDING_TYPES } from './systems/Building.js';
 import { ParticleSystem } from './systems/ParticleSystem.js';
 import { RoomDetector } from './systems/RoomDetector.js';
+import { Harvesting } from './systems/Harvesting.js';
 import { InventoryUI } from './ui/InventoryUI.js';
 import { SurvivalUI } from './ui/SurvivalUI.js';
 import { CraftingUI } from './ui/CraftingUI.js';
@@ -54,6 +55,7 @@ export class Game {
         this.building = new Building(this);
         this.particles = new ParticleSystem(this.scene);
         this.roomDetector = new RoomDetector(this);
+        this.harvesting = new Harvesting(this);
         this.isInRoom = false;
 
         // New UIs
@@ -214,6 +216,11 @@ export class Game {
         const speedMod = this.survival?.getSpeedMultiplier() || 1;
 
         player.isMoving = direction.length() > 0;
+
+        // Cancel harvesting if player moves
+        if (player.isMoving && this.harvesting?.isHarvesting) {
+            this.harvesting.cancelHarvesting();
+        }
 
         if (player.isMoving) {
             direction.normalize();
@@ -382,12 +389,27 @@ export class Game {
         window.addEventListener('mousedown', (e) => {
             if (e.button === 0) {
                 this.mouse.clicked = true;
+                this.mouseHoldStart = Date.now();
 
                 // Check if building mode
                 if (this.building?.isPlacing) {
                     // Handled by BuildingUI
+                } else if (this.harvesting?.isHarvesting) {
+                    // Already harvesting, do nothing on mousedown
                 } else {
-                    this.combat.playerAttack();
+                    // Check if there's a resource nearby for harvesting
+                    const nearbyResource = this.harvesting?.getNearbyResource();
+                    if (nearbyResource) {
+                        // Start harvesting after a short hold
+                        this.harvestTimeout = setTimeout(() => {
+                            if (this.mouse.clicked && nearbyResource) {
+                                this.harvesting.startHarvesting(nearbyResource);
+                            }
+                        }, 150); // 150ms hold to start harvesting
+                    } else {
+                        // No resource, do normal attack
+                        this.combat.playerAttack();
+                    }
                 }
             }
         });
@@ -395,6 +417,23 @@ export class Game {
         window.addEventListener('mouseup', (e) => {
             if (e.button === 0) {
                 this.mouse.clicked = false;
+
+                // Clear harvest timeout if it was set
+                if (this.harvestTimeout) {
+                    clearTimeout(this.harvestTimeout);
+                    this.harvestTimeout = null;
+                }
+
+                // If harvesting, trigger hit
+                if (this.harvesting?.isHarvesting) {
+                    this.harvesting.stopHarvesting(true);
+                } else if (Date.now() - (this.mouseHoldStart || 0) < 150) {
+                    // Quick click on resource - do normal attack
+                    const nearbyResource = this.harvesting?.getNearbyResource();
+                    if (nearbyResource) {
+                        this.combat.playerAttack();
+                    }
+                }
             }
         });
     }
@@ -413,8 +452,9 @@ export class Game {
     checkBuildingCollision(x, z) {
         if (!this.building) return false;
 
-        const playerRadius = 0.4; // Player collision radius
+        const playerRadius = 0.3; // Reduced player collision radius for smoother movement
 
+        // Check building collisions
         for (const [id, building] of this.building.buildings) {
             const type = BUILDING_TYPES[building.data.type];
             if (!type || !type.collision) continue;
@@ -439,6 +479,25 @@ export class Game {
                 z + playerRadius > bz - halfD &&
                 z - playerRadius < bz + halfD) {
                 return true;
+            }
+        }
+
+        // Check resource collisions (trees and rocks)
+        if (this.world && this.world.resources) {
+            for (const [id, resource] of this.world.resources) {
+                if (!resource.data.isHarvestable || !resource.group.visible) continue;
+
+                const rx = resource.data.x;
+                const rz = resource.data.z;
+                const resourceRadius = resource.data.type === 'tree' ? 0.4 : 0.5; // Smaller for trees
+
+                const dx = x - rx;
+                const dz = z - rz;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                if (dist < playerRadius + resourceRadius) {
+                    return true;
+                }
             }
         }
 
@@ -575,6 +634,9 @@ export class Game {
 
             // Room detection (auto-generates floors for closed rooms)
             this.roomDetector?.update(delta);
+
+            // Harvesting mini-game
+            this.harvesting?.update(delta);
 
             // Network
             this.network.sendPosition(this.player.mesh.position, this.player.mesh.rotation.y);

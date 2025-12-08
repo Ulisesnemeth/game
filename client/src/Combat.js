@@ -28,16 +28,24 @@ export class Combat {
         // Check for resources first (trees, rocks)
         const nearestResource = this.game.world.getNearestResource(attackPos, attackRadius);
         if (nearestResource) {
+            // Get tool bonus for this resource type
+            const resourceType = nearestResource.data.type; // 'tree' or 'rock'
+            const toolBonus = this.game.player.inventory.getToolBonus(resourceType);
+            const finalDamage = Math.floor(damage * toolBonus);
+
             // Send hit to server
-            this.game.network.sendResourceHit(nearestResource.id, damage);
+            this.game.network.sendResourceHit(nearestResource.id, finalDamage);
 
             // Show damage number at resource position
             const pos = new THREE.Vector3(nearestResource.data.x, 1, nearestResource.data.z);
-            this.showDamageNumber(pos, damage, isCrit);
+
+            // Show effectiveness indicator
+            const effectiveHit = toolBonus >= 1.0;
+            this.showDamageNumber(pos, finalDamage, isCrit || toolBonus >= 1.5, !effectiveHit);
 
             // Spawn wood/rock hit particles
             const hitColor = nearestResource.data.type === 'tree' ? 0x5c3317 : 0x888888;
-            this.game.particles?.spawnBloodSplatter(pos, hitColor, 0.5);
+            this.game.particles?.spawnBloodSplatter(pos, hitColor, effectiveHit ? 0.8 : 0.3);
 
             return;
         }

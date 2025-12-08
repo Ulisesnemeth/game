@@ -14,6 +14,7 @@ export class PlayerModel {
         this.walkCycle = 0;
         this.isAttacking = false;
         this.attackProgress = 0;
+        this.attackType = 0; // 0-3 for different attack animations
         this.hitFlash = 0;
 
         // Movement tracking
@@ -129,6 +130,8 @@ export class PlayerModel {
         if (isAttacking && !this.isAttacking) {
             this.isAttacking = true;
             this.attackProgress = 0;
+            // Randomly select attack type (0-3)
+            this.attackType = Math.floor(Math.random() * 4);
         }
 
         if (this.isAttacking) {
@@ -200,29 +203,109 @@ export class PlayerModel {
     animateAttack() {
         const progress = this.attackProgress;
 
-        // Three phase attack: wind up, strike, recover
+        // Use different attack animations based on attackType
+        switch (this.attackType) {
+            case 0: // Horizontal swing (right to left)
+                this.animateHorizontalSwing(progress);
+                break;
+            case 1: // Vertical overhead
+                this.animateOverheadSwing(progress);
+                break;
+            case 2: // Diagonal slash
+                this.animateDiagonalSlash(progress);
+                break;
+            case 3: // Thrust/stab
+                this.animateThrust(progress);
+                break;
+            default:
+                this.animateHorizontalSwing(progress);
+        }
+    }
+
+    animateHorizontalSwing(progress) {
+        // Horizontal swing from right to left
         if (progress < 0.2) {
-            // Wind up - pull arm back
             const t = progress / 0.2;
-            this.rightArmPivot.rotation.x = -t * 2.0;
-            this.rightArmPivot.rotation.z = -t * 0.5;
-            this.torso.rotation.z = t * 0.15;
+            this.rightArmPivot.rotation.x = -t * 0.5;
+            this.rightArmPivot.rotation.z = -t * 1.5;
+            this.torso.rotation.y = t * 0.3;
         } else if (progress < 0.5) {
-            // Strike - thrust forward
             const t = (progress - 0.2) / 0.3;
-            this.rightArmPivot.rotation.x = -2.0 + t * 3.5;
-            this.rightArmPivot.rotation.z = -0.5 + t * 0.3;
-            this.torso.rotation.z = 0.15 - t * 0.3;
+            this.rightArmPivot.rotation.x = -0.5 + t * 0.3;
+            this.rightArmPivot.rotation.z = -1.5 + t * 3.0;
+            this.torso.rotation.y = 0.3 - t * 0.6;
         } else {
-            // Recovery
+            const t = (progress - 0.5) / 0.5;
+            this.rightArmPivot.rotation.x = -0.2 * (1 - t);
+            this.rightArmPivot.rotation.z = 1.5 * (1 - t);
+            this.torso.rotation.y = -0.3 * (1 - t);
+        }
+        this.leftArmPivot.rotation.x = -Math.sin(progress * Math.PI) * 0.3;
+    }
+
+    animateOverheadSwing(progress) {
+        // Vertical overhead swing (like a hammer)
+        if (progress < 0.3) {
+            const t = progress / 0.3;
+            this.rightArmPivot.rotation.x = -t * 2.5;
+            this.rightArmPivot.rotation.z = -t * 0.2;
+            this.torso.rotation.x = -t * 0.15;
+        } else if (progress < 0.6) {
+            const t = (progress - 0.3) / 0.3;
+            this.rightArmPivot.rotation.x = -2.5 + t * 4.0;
+            this.rightArmPivot.rotation.z = -0.2 + t * 0.1;
+            this.torso.rotation.x = -0.15 + t * 0.25;
+        } else {
+            const t = (progress - 0.6) / 0.4;
+            this.rightArmPivot.rotation.x = 1.5 * (1 - t);
+            this.rightArmPivot.rotation.z = -0.1 * (1 - t);
+            this.torso.rotation.x = 0.1 * (1 - t);
+        }
+        this.leftArmPivot.rotation.x = -Math.sin(progress * Math.PI) * 0.5;
+    }
+
+    animateDiagonalSlash(progress) {
+        // Diagonal slash from upper right to lower left
+        if (progress < 0.2) {
+            const t = progress / 0.2;
+            this.rightArmPivot.rotation.x = -t * 1.5;
+            this.rightArmPivot.rotation.z = -t * 1.0;
+            this.torso.rotation.z = t * 0.1;
+        } else if (progress < 0.5) {
+            const t = (progress - 0.2) / 0.3;
+            this.rightArmPivot.rotation.x = -1.5 + t * 3.0;
+            this.rightArmPivot.rotation.z = -1.0 + t * 2.5;
+            this.torso.rotation.z = 0.1 - t * 0.25;
+        } else {
             const t = (progress - 0.5) / 0.5;
             this.rightArmPivot.rotation.x = 1.5 * (1 - t);
-            this.rightArmPivot.rotation.z = -0.2 * (1 - t);
+            this.rightArmPivot.rotation.z = 1.5 * (1 - t);
             this.torso.rotation.z = -0.15 * (1 - t);
         }
+        this.leftArmPivot.rotation.x = Math.sin(progress * Math.PI) * 0.4;
+        this.leftArmPivot.rotation.z = Math.sin(progress * Math.PI) * 0.2;
+    }
 
-        // Left arm follows slightly
-        this.leftArmPivot.rotation.x = -Math.sin(progress * Math.PI) * 0.3;
+    animateThrust(progress) {
+        // Forward thrust/stab
+        if (progress < 0.15) {
+            const t = progress / 0.15;
+            this.rightArmPivot.rotation.x = -t * 1.2;
+            this.rightArmPivot.rotation.z = -t * 0.3;
+            this.torso.rotation.z = t * 0.1;
+        } else if (progress < 0.4) {
+            const t = (progress - 0.15) / 0.25;
+            this.rightArmPivot.rotation.x = -1.2 + t * 2.5;
+            this.rightArm.position.z = t * 0.3; // Push arm forward
+            this.torso.rotation.z = 0.1 - t * 0.15;
+        } else {
+            const t = (progress - 0.4) / 0.6;
+            this.rightArmPivot.rotation.x = 1.3 * (1 - t);
+            this.rightArm.position.z = 0.3 * (1 - t);
+            this.rightArmPivot.rotation.z = -0.3 * (1 - t);
+            this.torso.rotation.z = -0.05 * (1 - t);
+        }
+        this.leftArmPivot.rotation.x = -Math.sin(progress * Math.PI) * 0.2;
     }
 
     playHit() {

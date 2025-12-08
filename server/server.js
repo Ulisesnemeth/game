@@ -419,7 +419,9 @@ setInterval(() => {
             if (dist <= 1.5 && mob.attackCooldown <= 0) {
                 io.to(player.id).emit('mobAttackedPlayer', {
                     mobId: mob.id,
-                    damage: mob.damage
+                    damage: mob.damage,
+                    mobX: mob.x,
+                    mobZ: mob.z
                 });
             }
         }

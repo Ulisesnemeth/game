@@ -185,6 +185,11 @@ export class Network {
             this.game.ui.updateHealth(newHp, this.game.player.maxHp);
             this.game.combat.showDamageNumber(this.game.player.mesh.position, data.damage, false, true);
 
+            // Apply knockback to player
+            if (data.mobX !== undefined && data.mobZ !== undefined) {
+                this.applyKnockbackToPlayer(data.mobX, data.mobZ);
+            }
+
             this.socket.emit('playerDamaged', {
                 hp: this.game.player.hp,
                 maxHp: this.game.player.maxHp
@@ -296,6 +301,44 @@ export class Network {
     sendBuildingContentsUpdate(buildingId, contents) {
         if (!this.connected) return;
         this.socket.emit('buildingContentsUpdate', { buildingId, contents });
+    }
+
+    applyKnockbackToPlayer(mobX, mobZ) {
+        const player = this.game.player;
+        const playerPos = player.mesh.position;
+
+        // Calculate knockback direction (away from mob)
+        const dx = playerPos.x - mobX;
+        const dz = playerPos.z - mobZ;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist > 0.1) {
+            const knockbackForce = 2.0; // Knockback strength
+            const normX = dx / dist;
+            const normZ = dz / dist;
+
+            // Apply knockback to player position
+            const newX = playerPos.x + normX * knockbackForce;
+            const newZ = playerPos.z + normZ * knockbackForce;
+
+            // Check building collision before applying
+            if (!this.game.checkBuildingCollision(newX, newZ)) {
+                playerPos.x = newX;
+                playerPos.z = newZ;
+            } else {
+                // Try sliding along X or Z axis
+                if (!this.game.checkBuildingCollision(newX, playerPos.z)) {
+                    playerPos.x = newX;
+                } else if (!this.game.checkBuildingCollision(playerPos.x, newZ)) {
+                    playerPos.z = newZ;
+                }
+            }
+
+            // Clamp to bounds
+            const bounds = 40;
+            playerPos.x = Math.max(-bounds, Math.min(bounds, playerPos.x));
+            playerPos.z = Math.max(-bounds, Math.min(bounds, playerPos.z));
+        }
     }
 
     updateConnectionStatus(status) {
